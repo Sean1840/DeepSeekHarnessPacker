@@ -1,0 +1,11 @@
+{
+  "name": "deepseek-harness-portable-build",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness 便携版（Windows）构建脚本 —— 打包出可分发、免 Node、离线可用的绿色压缩包",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.js"
+  }
+}

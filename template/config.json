@@ -1,0 +1,9 @@
+{
+  "registry": "https://registry.npmmirror.com",
+  "homeDir": "home",
+  "port": 20000,
+  "portRange": [20000, 21000],
+  "autoUpdate": "ask",
+  "openBrowser": true,
+  "dshPackage": "@deepseek-ai/dsh"
+}

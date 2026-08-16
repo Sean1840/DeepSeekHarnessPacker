@@ -1,0 +1,12 @@
+# 构建产物与运行时生成内容
+dist/
+node_modules/
+home/
+.npm-cache/
+*.zip
+*.log
+
+# 临时文件
+.tmp/
+.DS_Store
+Thumbs.db
