@@ -30,6 +30,16 @@
   - 联网且发现新版本 → 按 `config.json` 中的策略处理（默认询问你是否更新）。
 - 也可随时双击 `update.cmd` 手动更新。
 
+## 内置功能：文件挂载去重（dsh-file-mount）
+
+本包已预装并默认启用 **dsh-file-mount** 插件（[GitHub](https://github.com/acefun29/dsh-file-mount)，MIT）：
+
+- 已读入上下文的文件不会重复发送，重复读只补缺失部分、文件改动只重发变更行，**显著节省 token**；
+- 聊天界面会多出一个 **Mounted Files** 面板，可查看每个文件的挂载区间、新鲜度与节省统计；
+- 模型可通过 `file_mount_forget` 工具强制重读某个文件。
+
+无需任何配置，开箱即用。若想关闭或调整（如排除某些路径），可编辑 `home\profiles\web\cordis.patch.yml` 按 dsh loader 补丁语法覆盖。
+
 ## 配置（`config.json`）
 
 用记事本打开 `config.json` 修改：

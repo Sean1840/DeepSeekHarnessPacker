@@ -27,6 +27,10 @@ const DSH_PACKAGE = "@deepseek-ai/dsh";
 const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js"];
 const TEMPLATE_DIR = path.join(REPO, "template");
 
+// 预装插件：dsh-file-mount（增量文件挂载 + 读去重），tarball 固定在 vendor/ 下，
+// 构建时解压进便携包的 web profile，做到解压即用、离线可用。
+const VENDOR_DIR = path.join(REPO, "vendor");
+
 function log(msg) {
   console.log(`[build] ${msg}`);
 }
@@ -220,6 +224,68 @@ function makeZip() {
   log(`完成: ${zipPath}（${sizeMb} MB）`);
 }
 
+/**
+ * 预装默认插件 dsh-file-mount 到便携包的 web profile（默认启用、离线可用）。
+ * 流程：
+ *  1) 在 home/profiles/web 写入 profile 清单（bundles 顺序即加载顺序：
+ *     dsh-base → dsh-web-app → dsh-file-mount）以及 cordis.patch.yml / pnpm-workspace.yaml；
+ *  2) 把 vendor/ 下的 dsh-file-mount tarball 解压到 profile 的 node_modules。
+ * 插件的 peer 依赖（@deepseek-ai/dsh-*）在用户首次启动时由 dsh 的
+ * healProfilesModuleFallback 通过 junction 回退解析到本包 node_modules，无需打进 zip。
+ * vendor/ 下没有 tarball 时仅告警并跳过（不影响其余构建）。
+ */
+function installFileMountProfile(stage) {
+  let tgz = null;
+  if (fs.existsSync(VENDOR_DIR)) {
+    tgz = fs.readdirSync(VENDOR_DIR).find((f) => /^dsh-file-mount-\d+\.\d+\.\d+\.tgz$/.test(f));
+  }
+  if (!tgz) {
+    log("警告: vendor/ 下未找到 dsh-file-mount tarball，跳过预装插件");
+    return;
+  }
+  const ver = tgz.match(/^dsh-file-mount-(\d+\.\d+\.\d+)\.tgz$/)[1];
+  const profileDir = path.join(stage, "home", "profiles", "web");
+  const pkgDir = path.join(profileDir, "node_modules", "dsh-file-mount");
+  fs.mkdirSync(pkgDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(profileDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "dsh-profile-web",
+        private: true,
+        dependencies: { "dsh-file-mount": ver },
+        dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-file-mount"] } },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(profileDir, "cordis.patch.yml"),
+    "# 此 profile 的用户补丁层。dsh-file-mount 已作为 bundle 预装并默认启用；\n" +
+      "# 如需调整其配置（enabled/capacity/excludeGlobs 等），在此按 loader 补丁语法覆盖。\n" +
+      "[]\n",
+  );
+  fs.writeFileSync(
+    path.join(profileDir, "pnpm-workspace.yaml"),
+    "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n",
+  );
+
+  // 解压插件 tarball（tar 输出 package/ 前缀，strip 掉后拷入 profile node_modules）
+  // bsdtar 3.8+ 不再支持 --force-local，GNU tar 则需要；先试无参，失败再带参重试。
+  const tmp = path.join(TMP, "file-mount-extract");
+  fs.mkdirSync(tmp, { recursive: true });
+  const tgzPath = path.join(VENDOR_DIR, tgz);
+  const extractArgs = ["-xzf", tgzPath, "-C", tmp, "--strip-components", "1"];
+  let tar = run("tar", extractArgs);
+  if (tar.status !== 0) tar = run("tar", ["--force-local", ...extractArgs]);
+  if (tar.status !== 0) throw new Error("dsh-file-mount tarball 解压失败");
+  fs.cpSync(tmp, pkgDir, { recursive: true });
+  fs.rmSync(tmp, { recursive: true, force: true });
+  log(`已预装 dsh-file-mount v${ver}（${tgz}）`);
+}
+
 async function main() {
   process.chdir(REPO); // 无论从哪调用都回到仓库根，避免 cwd 恰好在 dist 内导致无法删除
   log("清理旧构建…");
@@ -290,6 +356,9 @@ async function main() {
   const dshBin = path.join(STAGE, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
   const check = run(nodeExe, [dshBin, "--version"], { cwd: STAGE });
   if (check.status !== 0) throw new Error("dsh 自检失败");
+
+  // 4.5 预装默认插件 dsh-file-mount（离线可用）
+  installFileMountProfile(STAGE);
 
   // 5. 清理临时文件并打包
   fs.rmSync(TMP, { recursive: true, force: true });
