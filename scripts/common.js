@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -129,20 +129,110 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-/** 用便携 node 运行 npm（同步、透传 stdio），返回退出码。 */
+/** 递归统计目录大小（字节）；目录不存在或读取失败返回 0。 */
+function dirSizeBytes(dir) {
+  let total = 0;
+  try {
+    const stack = [dir];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
+        const full = path.join(cur, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (entry.isFile()) total += fs.statSync(full).size;
+      }
+    }
+  } catch {
+    // 目录尚未创建或瞬时占用时按 0 处理
+  }
+  return total;
+}
+
+const PROGRESS_SPIN = ["◐", "◓", "◑", "◒"];
+const PROGRESS_LINE_WIDTH = 76;
+
+/**
+ * 用便携 node 运行 npm（异步 Promise，resolve 退出码），带实时进度提示。
+ * npm 11 起自带进度条默认关闭（progress=false），下载阶段几乎无输出，
+ * 用户容易误以为卡死。这里自行渲染状态行：耗时 + 下载量/速率（统计
+ * .npm-cache 目录增长，缓存与日志都在包目录内）+ 请求数；npm 的
+ * warn/error 即时透传，结束后输出 npm 摘要（如 added N packages）。
+ */
 export function runNpm(args, { registry } = {}) {
-  const node = resolveNode();
-  const npmCli = resolveNpmCli();
-  // 缓存与日志都写到包目录内：删除目录即可彻底清理，不在 %LOCALAPPDATA%\npm-cache 留残留。
-  const cacheDir = path.join(ROOT, ".npm-cache");
-  const fullArgs = [...args, "--no-audit", "--no-fund", "--cache", cacheDir, "--logs-max", "5"];
-  if (registry) fullArgs.push("--registry", registry);
-  const res = spawnSync(node, [npmCli, ...fullArgs], {
-    cwd: ROOT,
-    stdio: "inherit",
-    env: { ...process.env, NO_COLOR: "1", npm_config_cache: cacheDir },
+  return new Promise((resolve) => {
+    const node = resolveNode();
+    const npmCli = resolveNpmCli();
+    // 缓存与日志都写到包目录内：删除目录即可彻底清理，不在 %LOCALAPPDATA%\npm-cache 留残留。
+    const cacheDir = path.join(ROOT, ".npm-cache");
+    // --loglevel http：让 npm 输出 fetch 行，用于统计请求进度
+    const fullArgs = [...args, "--no-audit", "--no-fund", "--cache", cacheDir, "--logs-max", "5", "--loglevel", "http"];
+    if (registry) fullArgs.push("--registry", registry);
+
+    const started = Date.now();
+    let fetches = 0;
+    let spin = 0;
+    let cacheStart = dirSizeBytes(cacheDir);
+    let cachePrev = cacheStart;
+    let rate = 0; // 最近 2 秒下载字节速率
+
+    const render = () => {
+      const sec = Math.floor((Date.now() - started) / 1000);
+      const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+      const ss = String(sec % 60).padStart(2, "0");
+      const cacheNow = dirSizeBytes(cacheDir);
+      rate = (cacheNow - cachePrev) / 2;
+      cachePrev = cacheNow;
+      const dlMb = ((cacheNow - cacheStart) / 1048576).toFixed(1);
+      const rateKb = Math.round(rate / 1024);
+      const msg = `[更新中] 耗时 ${mm}:${ss} ${PROGRESS_SPIN[spin++ % PROGRESS_SPIN.length]} 下载 ${dlMb} MB（${rateKb} KB/s） 请求 ${fetches}`;
+      process.stdout.write("\r" + msg + " ".repeat(Math.max(0, PROGRESS_LINE_WIDTH - msg.length)));
+    };
+
+    console.log("");
+    console.log("正在联网安装/更新依赖，视网速可能需要数分钟，请勿关闭窗口。");
+    const timer = setInterval(render, 2000);
+
+    const child = spawn(node, [npmCli, ...fullArgs], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        NO_COLOR: "1",
+        FORCE_COLOR: "0",
+        npm_config_cache: cacheDir,
+        npm_config_progress: "false",
+      },
+    });
+
+    // stdout：npm 的摘要/树状输出，收尾时打印最后几行
+    let stdoutTail = [];
+    child.stdout.on("data", (buf) => {
+      stdoutTail = [...stdoutTail.slice(-16), ...buf.toString().split("\n")];
+    });
+
+    // stderr：http 行（fetch 计入请求数、cache 行忽略防刷屏）；warn/notice/error 即时透传
+    child.stderr.on("data", (buf) => {
+      for (const line of buf.toString().split("\n")) {
+        const t = line.trim();
+        if (/^npm http /.test(t)) {
+          if (t.startsWith("npm http fetch GET")) fetches++;
+        } else if (t) {
+          process.stdout.write("\r" + " ".repeat(PROGRESS_LINE_WIDTH) + "\r" + line + "\n");
+        }
+      }
+    });
+
+    const finish = (code) => {
+      clearInterval(timer);
+      process.stdout.write("\r" + " ".repeat(PROGRESS_LINE_WIDTH) + "\r");
+      for (const line of stdoutTail) if (line.trim()) console.log(line);
+      resolve(code ?? 1);
+    };
+    child.on("close", finish);
+    child.on("error", (err) => {
+      console.error(`[错误] 无法启动 npm: ${err.message}`);
+      finish(1);
+    });
   });
-  return res.status ?? 1;
 }
 
 /** 启动前检查：dsh 是否可用；不可用则打印提示并返回 false。 */

@@ -24,7 +24,7 @@ function ensurePackageJson() {
   );
 }
 
-function main() {
+async function main() {
   banner();
   const config = readConfig();
 
@@ -41,7 +41,7 @@ function main() {
   console.log("");
 
   ensurePackageJson();
-  const code = runNpm(["install"], { registry: config.registry });
+  const code = await runNpm(["install"], { registry: config.registry });
 
   if (code === 0 && isDshInstalled()) {
     console.log("");
@@ -56,4 +56,7 @@ function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(`[错误] 安装过程异常: ${err.message}`);
+  process.exitCode = 1;
+});

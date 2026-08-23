@@ -346,11 +346,22 @@ async function main() {
 
   const nodeExe = path.join(STAGE, "node", "node.exe");
   const npmCli = path.join(STAGE, "node", "node_modules", "npm", "bin", "npm-cli.js");
-  log("执行 npm install（约需数分钟）…");
+  // template/package-lock.json 已在步骤 2 随模板复制进 STAGE：
+  // npm 11 对无 lockfile 的整树全新解析存在卡死（CPU 空转，实测 rc.2 依赖树必现），
+  // 携带 lockfile 后走增量解析，几秒~一分钟内完成，且用户侧 install/update 同样受益。
+  log("执行 npm install（基于内置 lockfile 的增量安装，视网速约 1~3 分钟）…");
   const installRes = run(nodeExe, [npmCli, "install", "--no-audit", "--no-fund", "--registry", NPM_REGISTRY], {
     cwd: STAGE,
   });
   if (installRes.status !== 0) throw new Error("npm install 失败");
+
+  // npm install 可能按最新 dsh 版本更新了 lockfile：回写 template/ 供下次构建复用
+  const lockSrc = path.join(STAGE, "package-lock.json");
+  const lockDst = path.join(TEMPLATE_DIR, "package-lock.json");
+  if (fs.existsSync(lockSrc)) {
+    fs.copyFileSync(lockSrc, lockDst);
+    log("已回写 template/package-lock.json（内置依赖清单，随包分发）");
+  }
 
   // 4. 校验
   const dshBin = path.join(STAGE, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");

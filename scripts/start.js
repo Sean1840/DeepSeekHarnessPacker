@@ -56,7 +56,7 @@ async function maybeUpdate(config) {
   if (config.autoUpdate === "auto") {
     console.log("按配置自动更新…");
     console.log("");
-    runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+    await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
     return;
   }
 
@@ -64,7 +64,7 @@ async function maybeUpdate(config) {
   const yes = await askYesNo("是否立即更新到最新版？[Y/n] ");
   if (yes) {
     console.log("");
-    runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+    await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
   } else {
     console.log("已跳过更新，使用本地版本启动。");
     console.log("");

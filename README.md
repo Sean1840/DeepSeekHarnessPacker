@@ -13,6 +13,7 @@ scripts/                管理器核心（Node.js，UTF-8）
   build.js              打包脚本（仅开发者使用，不进 zip）
 template/               被打包进 zip 的静态文件
   config.json           用户可改配置
+  package-lock.json     内置依赖清单（构建与用户 install/update 均走增量解析，见「技术要点」）
   start.cmd / update.cmd / install.cmd     入口（双击）
   README.md             最终用户中文说明
 vendor/                 预装第三方插件 tarball（构建时解压进便携包，离线可用）
@@ -87,9 +88,11 @@ npm run build        # 等价于 node scripts/build.js
 ## 技术要点
 
 - **便携性**：通过 `DSH_HOME` 环境变量把 dsh 的用户数据（配置/凭证/会话）重定向到便携目录下的 `home/`，实现"删目录即清理"。
-- **离线可用**：dsh 及全部 530 个依赖预装进 `node_modules/`，解压即用。
+- **离线可用**：dsh 及全部 **500+ 个依赖**预装进 `node_modules/`，解压即用。
 - **免 Node**：随包附带便携版 Node.js（`node/node.exe` + npm），用户无需安装任何东西。
 - **原生依赖**：dsh 的原生部分（`node-pty`、`sharp`、`koffi` 等）均为 N-API / 平台预编译包，无源码编译，Node 24 与其它版本 ABI 兼容。
+- **基于 lockfile 的增量安装**：`template/package-lock.json` 随包内置。npm 11 对**无 lockfile 的整树全新解析**存在卡死（CPU 空转，rc.2 依赖树实测必现）；构建与用户侧的 `install.cmd`/`update.cmd` 都携带该 lockfile 走增量解析，几秒~一分钟完成且稳定。dsh 更新时构建会自动把更新后的 lockfile 回写回 `template/`。
+- **更新进度提示**：npm 11 默认关闭自带进度条（`progress=false`），下载阶段几乎无输出，用户易误以为卡死；`common.js` 的 `runNpm` 已改为实时渲染状态行（耗时 + 下载量/速率 + 请求数），并透传 npm 的 warn/error、收尾输出摘要。
 - **端口自适应**：启动时在 `config.json` 的 `portRange`（默认 20000–21000）范围内自动检测并挑选可用端口，跳过被占用端口及业界常用端口（80/443/8080/3000/3306 等），整个范围全被占用才报错。
 
 ## 发布新版本

@@ -48,7 +48,7 @@ async function main() {
   console.log(`发现新版本 v${latest}（当前 v${current}），开始更新…`);
   console.log("");
 
-  const code = runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+  const code = await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
   const after = installedVersion();
 
   if (code === 0 && after) {
