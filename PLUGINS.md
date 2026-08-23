@@ -149,7 +149,7 @@ set FLAVOR=finance && npm run build    # Windows cmd
 
 ### 金融 Skill 版本升级
 
-金融 Skill 与实时数据相关，升级策略：
+金融 Skill 与实时数据相关，升级策略（可用 `node scripts/sync-finance.mjs` 一键检查漂移）：
 
 - **数据实时性由 MCP/CLI 服务端保证**（查询时实时返回），Skill 内 `references/` 是**契约快照**（接口/工具/参数说明），不会随行情变化而失效；
 - **Skill 升级 = 重新 vendor**：从 `finance/manifest.json` 的 `skillSourceRepo`/`skillSourcePath` 同步最新 `skills/hithink-finance/`，更新 `skillVendoredAt` 后重新构建金融版；
