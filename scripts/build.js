@@ -42,6 +42,11 @@ const PROFILE_BUNDLES = [
   "@linxin666/dsh-web-ui-all",
 ];
 
+// 打包口味开关：FLAVOR=finance 构建金融特化版（默认插件之上再装 MCP/Skill/CLI）；
+// 缺省 standard 构建通用版（行为不变）。Windows cmd: set FLAVOR=finance && npm run build
+const FLAVOR = process.env.FLAVOR || "standard"; // standard | finance
+const FINANCE_DIR = path.join(REPO, "finance");
+
 function log(msg) {
   console.log(`[build] ${msg}`);
 }
@@ -226,7 +231,9 @@ function zipDirectory(srcDir, zipPath, prefix = "") {
 
 function makeZip() {
   const pkgVer = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).version;
-  const zipName = `DeepSeekHarness-v${pkgVer}.zip`;
+  const zipName = FLAVOR === "finance"
+    ? `DeepSeekHarness-Finance-v${pkgVer}.zip`
+    : `DeepSeekHarness-v${pkgVer}.zip`;
   const zipPath = path.join(DIST, zipName);
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
   log(`打包 ${zipName}…`);
@@ -316,6 +323,94 @@ function installDefaultPlugins(stage, nodeExe) {
   log(`默认插件就绪：${PROFILE_BUNDLES.slice(2).join("、")}`);
 }
 
+/**
+ * 金融特化内容（FLAVOR=finance 时调用，在默认插件之上追加）：
+ *  a) 改写 web profile 的 cordis.patch.yml —— 4 个同花顺 MCP 实例
+ *     （insert 列表 + `!!js` 环境变量插值，Key 不落盘，实测可用）；
+ *  b) 复制 hithink-finance Skill 到 home/skills/（vendor 源码，含 references/）；
+ *  c) 用便携 node 全局安装 hithink-finance CLI，并生成根级 hithink-finance.cmd 包装器；
+ *  d) 用 README.finance.md 覆盖根级 README。
+ */
+function installFinanceFlavor(stage, nodeExe) {
+  const profileDir = path.join(stage, "home", "profiles", "web");
+  const fin = JSON.parse(fs.readFileSync(path.join(FINANCE_DIR, "manifest.json"), "utf8"));
+
+  // a) MCP patch（Key 用 !!js 读环境变量，不落盘、不提交）
+  const mcp = [
+    ["mcp-a-share", "hithink-finance-a-share", "https://fuyao.aicubes.cn/mcp/a-share"],
+    ["mcp-a-share-index", "hithink-finance-a-share-index", "https://fuyao.aicubes.cn/mcp/a-share-index"],
+    ["mcp-meta", "hithink-finance-meta", "https://fuyao.aicubes.cn/mcp/meta"],
+    ["mcp-fund", "hithink-finance-fund", "https://fuyao.aicubes.cn/mcp/fund"],
+  ];
+  const yaml = [
+    "# 金融特化版：同花顺金融数据服务 MCP（4 个托管端点，共 55 个工具）。",
+    "# Key 从环境变量 HITHINK_FINANCE_API_KEY 读取（见 README「配置 Key」）。业务成功条件是响应信封 code=0。",
+    "# 注意：新增条目必须包在 insert 列表里（裸写条目会被当成按 id 覆盖而报 entry not found）。",
+    "- insert:",
+  ];
+  for (const [id, serverName, url] of mcp) {
+    yaml.push(
+      `    - id: ${id}`,
+      `      name: '@deepseek-ai/dsh-mcp-client'`,
+      `      config:`,
+      `        transport: streamable-http`,
+      `        serverName: ${serverName}`,
+      `        url: ${url}`,
+      `        headers:`,
+      `          X-api-key: !!js "process.env.HITHINK_FINANCE_API_KEY ?? ''"`,
+      `        failOnStartupError: false`,
+    );
+  }
+  fs.writeFileSync(path.join(profileDir, "cordis.patch.yml"), yaml.join("\n") + "\n");
+  log("已写入 4 个同花顺 MCP 实例（cordis.patch.yml）");
+
+  // b) Skill 预装（vendor 源码，必须含 SKILL.md + references/）
+  const skillSrc = path.join(FINANCE_DIR, "skills", "hithink-finance");
+  if (!fs.existsSync(path.join(skillSrc, "SKILL.md"))) {
+    throw new Error("finance/skills/hithink-finance 缺失（含 SKILL.md 与 references/），金融版构建必需");
+  }
+  fs.cpSync(skillSrc, path.join(stage, "home", "skills", "hithink-finance"), { recursive: true });
+  log("已预装 hithink-finance Skill → home/skills/");
+
+  // c) CLI 全局安装（便携 node 自带 npm；全局前缀 = node/ 目录）
+  //    注意：`npm run build` 会向子进程注入 npm_config_prefix=仓库根，导致 `-g` 装偏；
+  //    必须显式 --prefix 到便携 node 目录（实测覆盖注入的 env）。
+  const npmCli = path.join(stage, "node", "node_modules", "npm", "bin", "npm-cli.js");
+  log(`安装 hithink-finance CLI @${fin.cliVersion}（联网，约 1 分钟）…`);
+  const cliRes = run(nodeExe, [npmCli, "install", "-g", `@hithink-tech/hithink-finance-cli@${fin.cliVersion}`,
+    "--prefix", path.join(stage, "node"), "--registry", NPM_REGISTRY, "--no-audit", "--no-fund"], { cwd: stage });
+  if (cliRes.status !== 0) throw new Error("hithink-finance CLI 全局安装失败");
+  const cliMain = path.join(stage, "node", "node_modules", "@hithink-tech", "hithink-finance-cli", "dist", "cli", "main.js");
+  if (!fs.existsSync(cliMain)) throw new Error(`CLI 落位校验失败（找不到 ${cliMain}）`);
+  fs.writeFileSync(
+    path.join(stage, "hithink-finance.cmd"),
+    '@echo off\r\n"%~dp0node\\node.exe" "%~dp0node\\node_modules\\@hithink-tech\\hithink-finance-cli\\dist\\cli\\main.js" %*\r\n',
+  );
+  log(`已内置 hithink-finance CLI（${fin.cliVersion}），入口 hithink-finance.cmd`);
+
+  // c2) CLI 自带 10 个细分 Skill 复制进 home/skills/（npm 11 默认拦截 postinstall，
+  //     不能依赖其自动 skills sync；直接复制 CLI 包内 canonical 技能目录）
+  const cliSkills = path.join(stage, "node", "node_modules", "@hithink-tech", "hithink-finance-cli", "skills");
+  if (fs.existsSync(cliSkills)) {
+    for (const entry of fs.readdirSync(cliSkills, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const src = path.join(cliSkills, entry.name);
+      const dst = path.join(stage, "home", "skills", entry.name);
+      if (fs.existsSync(path.join(src, "SKILL.md"))) {
+        fs.cpSync(src, dst, { recursive: true });
+      }
+    }
+    log("已复制 CLI 细分 Skill（10 个）→ home/skills/");
+  }
+
+  // d) README 覆盖为金融特化版说明
+  const finReadme = path.join(TEMPLATE_DIR, "README.finance.md");
+  if (fs.existsSync(finReadme)) {
+    fs.copyFileSync(finReadme, path.join(stage, "README.md"));
+    log("已覆盖 README.md（金融特化版说明）");
+  }
+}
+
 async function main() {
   process.chdir(REPO); // 无论从哪调用都回到仓库根，避免 cwd 恰好在 dist 内导致无法删除
   log("清理旧构建…");
@@ -401,6 +496,11 @@ async function main() {
 
   // 4.5 预装默认插件（dsh-file-mount / dsh-market / dsh-web-ui-all，离线可用）
   installDefaultPlugins(STAGE, nodeExe);
+
+  // 4.6 金融特化版（仅 FLAVOR=finance 时）：MCP / Skill / CLI
+  if (FLAVOR === "finance") {
+    installFinanceFlavor(STAGE, nodeExe);
+  }
 
   // 5. 清理临时文件并打包
   fs.rmSync(TMP, { recursive: true, force: true });

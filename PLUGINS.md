@@ -116,3 +116,42 @@ DSH 侧边栏的「插件市场」面板：
 - `dsh-file-mount`：把新版 `dsh-file-mount-<ver>.tgz` 放进仓库 `vendor/` 重新构建即可（自动选用最新文件）。
 - `dsh-market` / `dsh-web-ui-all`：构建时自动解析 npm 最新版本；如需固定版本，修改 `scripts/build.js` 的 `NPM_DEFAULT_PLUGINS` 为 `pkg@version` 形式。
 - 升级 dsh 主版本后，建议重新构建并实际验证各插件（插件作者均要求对 DSH 升级重跑验证）。
+
+---
+
+## 金融特化版（`FLAVOR=finance`）
+
+金融特化版在**标准版 3 个插件之上**追加金融数据能力，产物为独立的 `dist/DeepSeekHarness-Finance-v<ver>.zip`（与通用版并存）。默认 `FLAVOR=standard` 构建通用版，**不包含**以下金融内容。
+
+| 内容 | 版本/来源 | 说明 | 打包方式 |
+| --- | --- | --- | --- |
+| 同花顺 MCP（×4 实例，55 工具） | 随 dsh 的 `dsh-mcp-client` | A股 21 / 指数 4 / 元数据 2 / 基金 28 | 写入 `home/profiles/web/cordis.patch.yml`（非 bundle，4 实例靠 patch 条目承载） |
+| `hithink-finance` Skill | vendor 源码（`finance/skills/`） | Agent 主路由，自动选 MCP/CLI/API/Python | 复制到 `home/skills/` |
+| `hithink-finance` CLI | `@hithink-tech/hithink-finance-cli@0.1.5`（`finance/manifest.json` 钉死） | 行情/财务/估值/特色数据/本地 DuckDB | 便携 node 全局安装 + 根级 `hithink-finance.cmd` |
+
+### 构建
+
+```bash
+set FLAVOR=finance && npm run build    # Windows cmd
+# 或 PowerShell: $env:FLAVOR="finance"; npm run build
+```
+
+### 关键实现约定（已在本地实测）
+
+1. **MCP 实例必须用 `insert:` 列表**（裸写条目会被当成"按 id 覆盖"而报 `entry not found`）；
+2. **Key 用 `!!js` 环境变量插值**：`X-api-key: !!js "process.env.HITHINK_FINANCE_API_KEY ?? ''"`，Key 不落盘；
+3. **`failOnStartupError: false`**：未配置 Key 时启动降级、不阻断；
+4. 4 个实例的 `name` 均为 `@deepseek-ai/dsh-mcp-client`（随 dsh 分发，无需额外安装），`serverName` 唯一且合规。
+
+### 升级金融内容
+
+见 [README.md「金融特化版升级」](README.md#金融特化版升级) 与下文「金融 Skill 版本升级」。
+
+### 金融 Skill 版本升级
+
+金融 Skill 与实时数据相关，升级策略：
+
+- **数据实时性由 MCP/CLI 服务端保证**（查询时实时返回），Skill 内 `references/` 是**契约快照**（接口/工具/参数说明），不会随行情变化而失效；
+- **Skill 升级 = 重新 vendor**：从 `finance/manifest.json` 的 `skillSourceRepo`/`skillSourcePath` 同步最新 `skills/hithink-finance/`，更新 `skillVendoredAt` 后重新构建金融版；
+- **CLI 升级**：改 `finance/manifest.json` 的 `cliVersion` 后重新构建（CLI 不随用户 `update.cmd` 自动升级）；
+- **dsh 升级**：金融 MCP 依赖 `dsh-mcp-client`（随 dsh 版本演进），升级 dsh 后需重跑金融版冒烟（工具数 55、`code=0`）。

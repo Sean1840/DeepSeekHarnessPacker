@@ -12,15 +12,20 @@ scripts/                管理器核心（Node.js，UTF-8）
   start.js              启动（含首次更新检查）
   build.js              打包脚本（仅开发者使用，不进 zip）
 PLUGINS.md              内置插件统一文档（版本/功能/默认配置/覆盖方式/升级）
+finance/                金融特化版内容（仅 FLAVOR=finance 打包时使用）
+  manifest.json         CLI/Skill 版本钉死
+  skills/hithink-finance/   vendor 的同花顺 Agent Skill（含 references/）
 template/               被打包进 zip 的静态文件
   config.json           用户可改配置
   package-lock.json     内置依赖清单（构建与用户 install/update 均走增量解析，见「技术要点」）
   start.cmd / update.cmd / install.cmd     入口（双击）
-  README.md             最终用户中文说明
+  README.md             最终用户中文说明（通用版）
+  README.finance.md     金融特化版用户说明（FLAVOR=finance 时覆盖 README.md）
 vendor/                 预装离线插件 tarball（构建时解压进便携包）
   dsh-file-mount-<ver>.tgz   dsh-file-mount 插件（增量文件挂载 + 读去重）
 dist/                   构建产物（gitignore）
-  DeepSeekHarness-v<ver>.zip
+  DeepSeekHarness-v<ver>.zip           通用版
+  DeepSeekHarness-Finance-v<ver>.zip   金融特化版
 ```
 
 ## 构建
@@ -34,6 +39,16 @@ npm run build        # 等价于 node scripts/build.js
 ```
 
 脚本会：下载便携 Node.js（x64，Node 24 LTS）→ 复制管理器与模板 → 用便携 Node 预装 dsh（离线可用）→ 自检 → 预装默认插件（**构建机需 pnpm 在 PATH**，见 [PLUGINS.md](PLUGINS.md)）→ 打包成 `dist/DeepSeekHarness-v<ver>.zip`。
+
+## 金融特化版
+
+在通用版基础上，`FLAVOR=finance` 构建**金融特化版**：额外内置同花顺金融数据 MCP（4 端点 55 工具）+ `hithink-finance` Skill + CLI。默认版本不含这些内容。
+
+```bash
+set FLAVOR=finance && npm run build    # Windows cmd，产出 DeepSeekHarness-Finance-v<ver>.zip
+```
+
+金融内容的版本/来源/升级策略详见 [PLUGINS.md「金融特化版」](PLUGINS.md#金融特化版finance)；关键实现（MCP 用 `insert:` + `!!js` 环境变量插值、`failOnStartupError: false`）已在本地实测。
 
 ## 内置插件
 
