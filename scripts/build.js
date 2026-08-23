@@ -328,13 +328,14 @@ async function main() {
 
   // 3. 预装 dsh（用刚解压的便携 node 的 npm，保证 ABI 一致）
   const dshVersion = await resolveDshVersion();
+  const pkgVer = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).version;
   log(`预装 dsh 版本: ${dshVersion}`);
   fs.writeFileSync(
     path.join(STAGE, "package.json"),
     JSON.stringify(
       {
         name: "deepseek-harness-portable",
-        version: "1.0.0",
+        version: pkgVer,
         private: true,
         type: "module",
         dependencies: { [DSH_PACKAGE]: dshVersion },
