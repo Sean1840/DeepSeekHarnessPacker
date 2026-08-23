@@ -30,15 +30,17 @@
   - 联网且发现新版本 → 按 `config.json` 中的策略处理（默认询问你是否更新）。
 - 也可随时双击 `update.cmd` 手动更新。
 
-## 内置功能：文件挂载去重（dsh-file-mount）
+## 内置插件（3 个，全部开箱即用）
 
-本包已预装并默认启用 **dsh-file-mount** 插件（[GitHub](https://github.com/acefun29/dsh-file-mount)，MIT）：
+本包预装并默认启用以下插件，**完全离线可用**：
 
-- 已读入上下文的文件不会重复发送，重复读只补缺失部分、文件改动只重发变更行，**显著节省 token**；
-- 聊天界面会多出一个 **Mounted Files** 面板，可查看每个文件的挂载区间、新鲜度与节省统计；
-- 模型可通过 `file_mount_forget` 工具强制重读某个文件。
+| 插件 | 功能 |
+| --- | --- |
+| **dsh-file-mount** | 文件增量挂载 + 读去重：重复读只补缺失部分、文件改动只重发变更行，显著节省 token；聊天界面提供 **Mounted Files** 面板（挂载区间/新鲜度/节省统计），模型可用 `file_mount_forget` 强制重读 |
+| **dsh-market** | 侧边栏「插件市场」：浏览/搜索 1500+ DSH 插件，一键安装（联网时可用） |
+| **dsh-web-ui-all** | Web UI 全家桶：任务看板、Git 图谱、右侧预览/文件面板、鲸鱼娘宠物、移动端远程、实时 token 统计、皮肤中心、SSH、图片理解 |
 
-无需任何配置，开箱即用。若想关闭或调整（如排除某些路径），可编辑 `home\profiles\web\cordis.patch.yml` 按 dsh loader 补丁语法覆盖。
+无需任何配置。若想关闭或调整某个插件（如 file-mount 的 `enabled`/`excludeGlobs`），可编辑 `home\profiles\web\cordis.patch.yml` 按 dsh loader 补丁语法覆盖。
 
 ## 配置（`config.json`）
 
