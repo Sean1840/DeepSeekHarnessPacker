@@ -18,6 +18,9 @@
 **Q：更新完双击 start.cmd 立刻退出，窗口里有 plugin tree failed / settingsNamespace？**  
 这是内核已经升上去、Web UI 基础插件还是旧包。再运行 `start.cmd`，按提示刷新基础插件即可。也可以把 `DeepSeekHarness-v*.zip` 拖到 `update.cmd` 上，升级内核后同意刷新基础插件。自己装的插件、对话和设置都会保留。
 
+**Q：启动后提示「历史加载失败」且含 `unexpected member "path"` / `dsh-session-format-v0-to-v1`？**  
+这是旧版 `dsh-file-mount` 往会话里写了新内核不认的字段。本包已修插件；已有会话需要把多出来的 `source.path` 等字段去掉后才能再打开。对话内容还在 `home/sessions` 里。
+
 **Q：`.baseline-web` 是什么？**  
 上次用 zip 更新时留下的出厂基础插件备份，给启动失败修复用。不是会话数据，可删；下次 zip 更新会再生成。
 

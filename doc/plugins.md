@@ -30,7 +30,7 @@
 
 ## 安装机制（构建侧）
 
-- **dsh-file-mount**：`vendor/dsh-file-mount-<ver>.tgz` 离线解压进 profile 的 `node_modules`。
+- **dsh-file-mount**：`vendor/dsh-file-mount-<ver>.tgz` 离线解压进 profile 的 `node_modules`。本仓库内的 0.5.1 tarball 已打补丁：注入消息的 `source` 只保留 dsh 0.1.5 会话格式允许的字段（`kind` / `plugin` / `form` / `summary`）。上游原版会多写 `path` 等字段，新内核加载历史时会报 `unexpected member "path"`。
 - **dsh-market / dsh-web-all**：构建时经 `dsh plugin --profile web add <pkg>`（内部转发 pnpm）。**构建机需要 pnpm 在 PATH 上**。
 - 构建完成后规整 profile 清单：依赖为精确版本，bundles 顺序固定。
 
