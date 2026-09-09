@@ -776,6 +776,60 @@ async function maybeRefreshBaselinePlugins(sourceDir, { becauseDshUpgraded = fal
   return true;
 }
 
+function liveHasFileMount() {
+  const pkg = readJsonSilent(path.join(webProfileDir(), "package.json"));
+  const deps = pluginDeps(pkg);
+  if ("dsh-file-mount" in deps) return true;
+  const bundles = pkg?.dsh?.profile?.bundles;
+  return Array.isArray(bundles) && bundles.includes("dsh-file-mount");
+}
+
+function stripFileMountFromManifest(dir) {
+  const livePath = path.join(dir, "package.json");
+  const live = readJsonSilent(livePath);
+  if (!live) return false;
+  let changed = false;
+  if (live.dependencies && "dsh-file-mount" in live.dependencies) {
+    delete live.dependencies["dsh-file-mount"];
+    changed = true;
+  }
+  const bundles = live.dsh?.profile?.bundles;
+  if (Array.isArray(bundles) && bundles.includes("dsh-file-mount")) {
+    live.dsh.profile.bundles = bundles.filter((b) => b !== "dsh-file-mount");
+    changed = true;
+  }
+  if (changed) fs.writeFileSync(livePath, JSON.stringify(live, null, 2) + "\n");
+  const nm = path.join(dir, "node_modules", "dsh-file-mount");
+  if (fs.existsSync(nm)) fs.rmSync(nm, { recursive: true, force: true });
+  return changed;
+}
+
+function uninstallFileMount() {
+  stripFileMountFromManifest(webProfileDir());
+  const cached = baselineWebDir();
+  if (fs.existsSync(path.join(cached, "package.json"))) stripFileMountFromManifest(cached);
+  console.log("已卸载 dsh-file-mount。");
+}
+
+/** 本次更新已因 file-mount 被取消，后面的内核升级也不再问。 */
+let fileMountUpdateAborted = false;
+
+/** 仍装着不兼容的 file-mount 时，必须先卸再更新，否则取消。 */
+async function confirmFileMountOrAbortUpdate() {
+  if (fileMountUpdateAborted) return false;
+  if (!liveHasFileMount()) return true;
+  console.log("");
+  console.log("检测到已安装 dsh-file-mount。它和当前 dsh 内核的会话格式不兼容，");
+  console.log("打开旧对话会报「历史加载失败」。本包已不再预装该插件。");
+  if (!(await askYesNo("是否卸载 dsh-file-mount 并继续更新？不卸载则取消本次更新。[Y/n] "))) {
+    console.log("已取消更新。可先自行卸载该插件后再更新。");
+    fileMountUpdateAborted = true;
+    return false;
+  }
+  uninstallFileMount();
+  return true;
+}
+
 async function afterPayloadApplied(payload, dshUpgraded) {
   const web = payloadWebDir(payload);
   try {
@@ -795,10 +849,6 @@ function hintStalePlugins(payload) {
   } else if (skew.extras.length) {
     const show = skew.extras.slice(0, 8).join("、");
     console.log(`你自行安装的插件未改动：${show}${skew.extras.length > 8 ? " 等" : ""}`);
-  }
-  const liveDeps = pluginDeps(readJsonSilent(path.join(webProfileDir(), "package.json")));
-  if ("dsh-file-mount" in liveDeps) {
-    console.log("提示：dsh-file-mount 已从本包默认插件撤下（与当前内核会话格式不兼容，会导致历史加载失败）。建议在网页「设置 → 插件」里卸载。");
   }
 }
 
@@ -1151,6 +1201,7 @@ export async function installPackerRelease(release) {
     }
     console.log("正在校验压缩包…");
     const meta = inspectAndExtractPortableZip(zipPath, extractDir);
+    if (!(await confirmFileMountOrAbortUpdate())) return null;
     console.log("正在替换程序文件（不改你的插件；会话和 Key 会保留）…");
     overlayPayload(meta.payload);
     hintStalePlugins(meta.payload);
@@ -1184,6 +1235,7 @@ async function applyLocalZip(zipPath, cur) {
   try {
     console.log("正在校验压缩包…");
     const meta = inspectAndExtractPortableZip(zipPath, extractDir);
+    if (!(await confirmFileMountOrAbortUpdate())) return null;
     const cmp = compareVersions(meta.version, cur);
     if (cmp === 0) {
       console.log(`该压缩包版本 v${meta.version} 与当前相同，跳过程序文件替换。`);
@@ -1245,9 +1297,11 @@ export async function runUpdates(config, { interactive = false, allowLocalPrompt
           if (go) {
             try {
               const applied = await installPackerRelease(latest);
-              result.packer = applied.packer;
-              if (applied.dsh) result.dsh = applied.dsh;
-              config = readConfig();
+              if (applied) {
+                result.packer = applied.packer;
+                if (applied.dsh) result.dsh = applied.dsh;
+                config = readConfig();
+              }
             } catch (err) {
               console.log(`在线下载失败：${err.message}`);
               if (allowLocalPrompt) {
@@ -1306,6 +1360,7 @@ export async function runUpdates(config, { interactive = false, allowLocalPrompt
 
   console.log(`检测到 dsh 内核新版本 v${latestDsh}（当前 v${current}）。`);
   console.log("插件不会随内核一起自动改；只有你同意才会替换 dsh。");
+  if (!(await confirmFileMountOrAbortUpdate())) return result;
   if (!(await askYesNo("是否升级 dsh 内核？同意后才替换。[Y/n] "))) {
     console.log("已跳过 dsh 内核升级。");
     console.log("");
