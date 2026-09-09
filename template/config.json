@@ -6,5 +6,6 @@
   "autoUpdate": "ask",
   "openBrowser": true,
   "dshPackage": "@deepseek-ai/dsh",
-  "dshTag": "alpha"
+  "dshTag": "alpha",
+  "updateRepo": "Sean1840/DeepSeekHarnessPacker"
 }

@@ -72,5 +72,5 @@ npm run build        # 等价于 node scripts/build.js
 ## 发布新版本
 
 1. 双击 `build.cmd`（或 `npm run build`）生成新的 zip。
-2. 把 `dist/DeepSeekHarness-v<ver>.zip` 发给用户即可。
-3. 老用户双击 `update.cmd` 即可原地升级，无需重新下载整个压缩包。
+2. 把 `dist/DeepSeekHarness-v<ver>.zip` 发到 GitHub Release。
+3. 已安装本便携包的用户双击 **`update.cmd`**（或启动时按提示）即可原地升级：自动下载最新 zip、覆盖程序文件，**不覆盖 `home/` 和用户改过的 `config.json`**。无需手动替换文件夹。

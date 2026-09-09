@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import readline from "node:readline";
 import net from "node:net";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,13 +24,16 @@ export const DEFAULT_CONFIG = {
   dshPackage: "@deepseek-ai/dsh",
   // npm dist-tag。当前上游正式 latest 仍是 0.1.2-rc.1，GitHub/npm 最新线在 alpha（0.1.5-alpha.x）。
   dshTag: "alpha",
+  // 便携包自身从该 GitHub 仓库的 latest release 原地升级（不覆盖 home/ 与用户 config）。
+  updateRepo: "Sean1840/DeepSeekHarnessPacker",
 };
 
 /** 打印横幅。 */
 export function banner() {
+  const packer = packerVersion();
   const v = installedVersion();
   console.log("==============================================");
-  console.log("  DeepSeek Harness 便携版");
+  console.log("  DeepSeek Harness 便携版" + (packer ? ` v${packer}` : ""));
   if (v) console.log(`  dsh 版本: ${v}`);
   console.log("==============================================");
   console.log("");
@@ -369,4 +373,325 @@ function normalizeRegistry(registry) {
 /** 将作用域包名 @scope/name 转成 registry 路径可用的 @scope%2Fname。 */
 function encodePkgSpec(pkg) {
   return pkg.replace("/", "%2F");
+}
+
+/** 便携包自身版本（根目录 package.json，与 GitHub release tag 对齐）。 */
+export function packerVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 控制台是/否，默认回车为是。 */
+export function askYesNo(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      const a = answer.trim().toLowerCase();
+      resolve(a === "" || a === "y" || a === "yes" || a === "是");
+    });
+  });
+}
+
+const GITHUB_HEADERS = {
+  accept: "application/vnd.github+json",
+  "user-agent": "DeepSeekHarness-portable",
+};
+
+/**
+ * 查询 GitHub latest release。返回 { version, name, url, size } 或 null。
+ * 资源名匹配 DeepSeekHarness-v*.zip，排除 Finance。
+ */
+export async function latestPackerRelease(config = {}) {
+  const repo = config.updateRepo || DEFAULT_CONFIG.updateRepo;
+  const url = `https://api.github.com/repos/${repo}/releases/latest`;
+  const res = await fetch(url, { headers: GITHUB_HEADERS, signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
+  const data = await res.json();
+  const version = String(data.tag_name || "").replace(/^v/i, "");
+  if (!version) throw new Error("GitHub release 无 tag");
+  const asset = (data.assets || []).find(
+    (a) => /^DeepSeekHarness-v.+\.zip$/i.test(a.name) && !/finance/i.test(a.name),
+  );
+  if (!asset?.browser_download_url) throw new Error("release 中没有便携包 zip");
+  return { version, name: asset.name, url: asset.browser_download_url, size: Number(asset.size) || 0 };
+}
+
+/** 带进度下载到 dest。 */
+export async function downloadFile(url, dest) {
+  const res = await fetch(url, {
+    headers: { "user-agent": "DeepSeekHarness-portable", accept: "application/octet-stream" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(900000),
+  });
+  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const fh = fs.createWriteStream(dest);
+  const reader = res.body.getReader();
+  let got = 0;
+  const t0 = Date.now();
+  let lastRender = 0;
+  const paint = () => {
+    const sec = Math.max(0.5, (Date.now() - t0) / 1000);
+    const mb = (got / 1048576).toFixed(1);
+    const tot = total ? (total / 1048576).toFixed(1) : "?";
+    const pct = total ? `${Math.min(100, Math.floor((got / total) * 100))}%`.padStart(4) : "    ";
+    const rate = (got / sec / 1048576).toFixed(1);
+    const msg = `[下载] ${pct}  ${mb}/${tot} MB  ${rate} MB/s`;
+    process.stdout.write("\r" + msg + " ".repeat(Math.max(0, 72 - msg.length)));
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fh.write(Buffer.from(value));
+      got += value.byteLength;
+      if (Date.now() - lastRender > 400) {
+        lastRender = Date.now();
+        paint();
+      }
+    }
+  } finally {
+    await new Promise((resolve, reject) => {
+      fh.end(() => resolve());
+      fh.on("error", reject);
+    });
+    process.stdout.write("\r" + " ".repeat(72) + "\r");
+  }
+}
+
+function psQuote(s) {
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
+
+/** 解压 zip 到 destDir（PowerShell Expand-Archive，失败再试 tar）。 */
+export function extractZip(zipPath, destDir) {
+  fs.mkdirSync(destDir, { recursive: true });
+  const ps = spawnSync(
+    "powershell",
+    ["-NoProfile", "-Command", `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(destDir)} -Force`],
+    { stdio: "inherit", windowsHide: true },
+  );
+  if (ps.status === 0) return;
+  const tar = spawnSync("tar", ["-xf", zipPath, "-C", destDir], { stdio: "inherit" });
+  if (tar.status !== 0) throw new Error("解压失败（PowerShell / tar 均不可用）");
+}
+
+function findPayloadRoot(extractDir) {
+  if (fs.existsSync(path.join(extractDir, "scripts", "start.js"))) return extractDir;
+  for (const name of fs.readdirSync(extractDir)) {
+    const p = path.join(extractDir, name);
+    if (fs.statSync(p).isDirectory() && fs.existsSync(path.join(p, "scripts", "start.js"))) return p;
+  }
+  throw new Error("压缩包里找不到便携包内容（缺少 scripts/start.js）");
+}
+
+const LOCKED = new Set(["EBUSY", "EPERM", "EACCES"]);
+
+function copyTreeSkipLocked(src, dst, skipped, rel = "") {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dst, entry.name);
+    const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) copyTreeSkipLocked(s, d, skipped, childRel);
+    else {
+      try {
+        fs.copyFileSync(s, d);
+      } catch (err) {
+        if (LOCKED.has(err.code)) skipped.push(childRel);
+        else throw err;
+      }
+    }
+  }
+}
+
+function mergeConfigJson(incomingPath) {
+  const cfgPath = path.join(ROOT, "config.json");
+  let incoming = {};
+  let user = {};
+  try {
+    incoming = JSON.parse(fs.readFileSync(incomingPath, "utf8"));
+  } catch {
+    return;
+  }
+  try {
+    user = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+  } catch {
+    user = {};
+  }
+  const out = { ...incoming, ...user };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (!(k in user)) out[k] = v;
+  }
+  fs.writeFileSync(cfgPath, JSON.stringify(out, null, 2) + "\n");
+}
+
+function overlayWebProfile(srcProfile, dstProfile) {
+  if (!fs.existsSync(srcProfile)) return;
+  fs.mkdirSync(dstProfile, { recursive: true });
+  const patchPath = path.join(dstProfile, "cordis.patch.yml");
+  const patchBackup = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : null;
+
+  const srcNm = path.join(srcProfile, "node_modules");
+  if (fs.existsSync(srcNm)) {
+    fs.cpSync(srcNm, path.join(dstProfile, "node_modules"), { recursive: true, force: true });
+  }
+
+  let srcPkg = {};
+  let dstPkg = { name: "dsh-profile-web", private: true, dependencies: {}, dsh: { profile: { bundles: [] } } };
+  try {
+    srcPkg = JSON.parse(fs.readFileSync(path.join(srcProfile, "package.json"), "utf8"));
+  } catch {
+    srcPkg = {};
+  }
+  try {
+    dstPkg = JSON.parse(fs.readFileSync(path.join(dstProfile, "package.json"), "utf8"));
+  } catch {
+    /* 使用默认 */
+  }
+  dstPkg.dependencies = { ...(dstPkg.dependencies || {}), ...(srcPkg.dependencies || {}) };
+  const srcBundles = srcPkg.dsh?.profile?.bundles || [];
+  const dstBundles = dstPkg.dsh?.profile?.bundles || [];
+  const seen = new Set(srcBundles);
+  dstPkg.dsh = { profile: { bundles: [...srcBundles, ...dstBundles.filter((b) => !seen.has(b))] } };
+  fs.writeFileSync(path.join(dstProfile, "package.json"), JSON.stringify(dstPkg, null, 2) + "\n");
+
+  for (const f of ["pnpm-lock.yaml", "pnpm-workspace.yaml"]) {
+    const s = path.join(srcProfile, f);
+    if (fs.existsSync(s)) fs.copyFileSync(s, path.join(dstProfile, f));
+  }
+
+  if (patchBackup !== null) fs.writeFileSync(patchPath, patchBackup);
+  else {
+    const srcPatch = path.join(srcProfile, "cordis.patch.yml");
+    if (fs.existsSync(srcPatch)) fs.copyFileSync(srcPatch, patchPath);
+  }
+}
+
+/**
+ * 把 GitHub release zip 原地覆盖到当前便携目录。
+ * 保留 home（会话/Key）与用户 config.json；内置插件目录会升级并保留用户补丁和额外插件。
+ */
+export async function installPackerRelease(release) {
+  const work = path.join(ROOT, ".update");
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { recursive: true });
+  const zipPath = path.join(work, release.name || "portable.zip");
+  const extractDir = path.join(work, "extract");
+  const skipped = [];
+  try {
+    console.log(`正在下载 ${release.name}…`);
+    await downloadFile(release.url, zipPath);
+    console.log("正在解压…");
+    extractZip(zipPath, extractDir);
+    const payload = findPayloadRoot(extractDir);
+    console.log("正在替换程序文件（会话和 Key 会保留）…");
+
+    const skipTop = new Set(["home", "config.json", ".update", ".npm-cache"]);
+    for (const entry of fs.readdirSync(payload, { withFileTypes: true })) {
+      if (skipTop.has(entry.name)) continue;
+      const s = path.join(payload, entry.name);
+      const d = path.join(ROOT, entry.name);
+      if (entry.name === "node") {
+        copyTreeSkipLocked(s, d, skipped, "node");
+        continue;
+      }
+      if (entry.isDirectory()) {
+        fs.cpSync(s, d, { recursive: true, force: true });
+      } else {
+        try {
+          fs.copyFileSync(s, d);
+        } catch (err) {
+          if (LOCKED.has(err.code)) skipped.push(entry.name);
+          else throw err;
+        }
+      }
+    }
+
+    const incomingCfg = path.join(payload, "config.json");
+    if (fs.existsSync(incomingCfg)) mergeConfigJson(incomingCfg);
+
+    const homeName = readConfig().homeDir || "home";
+    overlayWebProfile(
+      path.join(payload, "home", "profiles", "web"),
+      path.join(ROOT, homeName, "profiles", "web"),
+    );
+
+    if (skipped.length) {
+      console.log(`[提示] 以下文件正在使用，未能替换（不影响本次运行，下次更新会再试）：`);
+      for (const f of skipped.slice(0, 8)) console.log(`       ${f}`);
+      if (skipped.length > 8) console.log(`       …另有 ${skipped.length - 8} 个`);
+    }
+    console.log(`便携包已更新到 v${release.version}。`);
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 便携包自更新 + dsh 引擎更新。
+ * interactive=true 时询问；update.cmd 传 false 直接更新。
+ */
+export async function runUpdates(config, { interactive = false } = {}) {
+  const result = { packer: null, dsh: null };
+
+  try {
+    const cur = packerVersion() || "0.0.0";
+    const latest = await latestPackerRelease(config);
+    if (latest && compareVersions(latest.version, cur) > 0) {
+      console.log(`检测到便携包新版本 v${latest.version}（当前 v${cur}）。`);
+      console.log("会自动替换程序文件；对话记录和 API Key 仍在 home 目录，不用手动拷文件。");
+      if (latest.size) {
+        console.log(`需联网下载约 ${(latest.size / 1048576).toFixed(0)} MB，请保持窗口打开。`);
+      }
+      const go = interactive ? await askYesNo("是否立即更新便携包？[Y/n] ") : true;
+      if (go) {
+        await installPackerRelease(latest);
+        result.packer = latest.version;
+        config = readConfig();
+      } else {
+        console.log("已跳过便携包更新。");
+      }
+      console.log("");
+    }
+  } catch (err) {
+    console.log(`[提示] 便携包更新检查失败：${err.message}`);
+    console.log("       将继续检查 dsh 引擎（或稍后再双击 update.cmd）。");
+    console.log("");
+  }
+
+  const current = installedVersion();
+  if (!current) return result;
+  if (!(await networkReachable(config.registry, config.dshPackage, config.dshTag))) {
+    if (!result.packer) {
+      console.log("[提示] 离线模式：无法联网更新 dsh，使用本地版本。");
+      console.log("");
+    }
+    return result;
+  }
+  const latestDsh = await latestVersion(config.registry, config.dshPackage, config.dshTag);
+  if (!latestDsh || compareVersions(latestDsh, current) <= 0) return result;
+
+  console.log(`检测到 dsh 新版本 v${latestDsh}（当前 v${current}）。`);
+  const go = interactive ? await askYesNo("是否立即更新 dsh 引擎？[Y/n] ") : true;
+  if (go) {
+    const code = await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
+    result.dsh = installedVersion();
+    if (code !== 0) {
+      console.error("");
+      console.error("[错误] dsh 更新失败，请检查网络后重试。");
+    } else {
+      console.log("");
+      console.log(`dsh 已更新到 v${result.dsh}。`);
+    }
+  } else {
+    console.log("已跳过 dsh 更新。");
+  }
+  console.log("");
+  return result;
 }

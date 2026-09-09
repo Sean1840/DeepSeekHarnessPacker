@@ -6,7 +6,6 @@
 
 import path from "node:path";
 import { spawn } from "node:child_process";
-import readline from "node:readline";
 import {
   ROOT,
   banner,
@@ -14,63 +13,10 @@ import {
   resolveDshBin,
   readConfig,
   ensureInstalled,
-  installedVersion,
-  networkReachable,
-  latestVersion,
-  compareVersions,
-  runNpm,
   openBrowser,
   findFreePort,
-  dshInstallSpec,
+  runUpdates,
 } from "./common.js";
-
-/** 询问用户是否更新，返回 true/false。 */
-function askYesNo(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      const a = answer.trim().toLowerCase();
-      resolve(a === "" || a === "y" || a === "yes" || a === "是");
-    });
-  });
-}
-
-/** 按配置执行更新检查；返回是否已执行更新（更新失败不阻断启动）。 */
-async function maybeUpdate(config) {
-  const current = installedVersion();
-  if (!current) return;
-
-  if (!(await networkReachable(config.registry, config.dshPackage, config.dshTag))) {
-    console.log("[提示] 离线模式：无法联网，跳过更新检查，直接启动本地预装版本。");
-    console.log("");
-    return;
-  }
-
-  const latest = await latestVersion(config.registry, config.dshPackage, config.dshTag);
-  if (!latest || compareVersions(latest, current) <= 0) {
-    return; // 已是最新，静默启动
-  }
-
-  console.log(`检测到新版本 v${latest}（当前 v${current}）。`);
-
-  if (config.autoUpdate === "auto") {
-    console.log("按配置自动更新…");
-    console.log("");
-    await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
-    return;
-  }
-
-  // 默认 ask 模式
-  const yes = await askYesNo("是否立即更新到最新版？[Y/n] ");
-  if (yes) {
-    console.log("");
-    await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
-  } else {
-    console.log("已跳过更新，使用本地版本启动。");
-    console.log("");
-  }
-}
 
 /** 启动 dsh web（前台长驻，继承终端）。 */
 function launch(config, port) {
@@ -115,7 +61,7 @@ async function main() {
   }
 
   if (config.autoUpdate !== "off") {
-    await maybeUpdate(config);
+    await runUpdates(config, { interactive: config.autoUpdate !== "auto" });
   }
 
   const port = await findFreePort(config.port, config.portRange);
