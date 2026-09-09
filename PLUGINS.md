@@ -3,7 +3,7 @@
 本包默认预装以下插件，**解压即用、全部离线可用**（插件及其依赖已打进 zip）。
 插件统一注册在 `home\profiles\web` 的 `dsh.profile.bundles` 中，加载顺序固定为：
 
-`@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` → `dsh-file-mount` → `@dsh-market/plugin` → `@linxin666/dsh-web-ui-all`
+`@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` → `dsh-file-mount` → `@dsh-market/plugin` → `@linxin666/dsh-web-all`
 
 ---
 
@@ -13,15 +13,15 @@
 | --- | --- | --- | --- | --- |
 | [dsh-file-mount](https://github.com/acefun29/dsh-file-mount) | 0.5.1 | GitHub（vendor 离线 tarball） | MIT | 增量文件挂载 + 读去重，Mounted Files 面板 |
 | [@dsh-market/plugin](https://github.com/2BingLing/dsh-market) | 0.4.5 | npm（构建时安装） | MIT | 插件市场：1500+ DSH 插件，中文搜索 + 五维评分 + 一键安装 |
-| [@linxin666/dsh-web-ui-all](https://github.com/zhu1090093659/dsh-web-ui) | 0.3.6 | npm（构建时安装） | Apache-2.0 | Web UI 全家桶：任务看板 / Git 图谱 / 右侧面板 / 鲸鱼娘宠物 / 移动端远程 / 实时 token 统计 / 皮肤中心 / SSH / 图片理解 |
+| [@linxin666/dsh-web-all](https://github.com/zhu1090093659/dsh-web-ui) | 0.3.19 | npm（构建时安装） | Apache-2.0 | Web UI 全家桶（`dsh-web-ui-all` 后继包）：任务看板 / Git 图谱 / 右侧面板 / 鲸鱼娘宠物 / 移动端远程 / 实时 token 统计 / 皮肤中心 / SSH / 图片理解 |
 
 > 版本号以 `vendor/` 与构建时锁定为准：`dsh-file-mount` 是仓库内置的离线 tarball；
-> `@dsh-market/plugin`、`@linxin666/dsh-web-ui-all` 在构建时从 npm 拉取后打进 zip，用户侧无需联网。
+> `@dsh-market/plugin`、`@linxin666/dsh-web-all` 在构建时从 npm 拉取后打进 zip，用户侧无需联网。
 
 ## 安装机制（构建侧）
 
 - **dsh-file-mount**：`vendor/dsh-file-mount-<ver>.tgz` 离线解压进 profile 的 `node_modules`（零运行时依赖，完全离线、可复现）。
-- **dsh-market / dsh-web-ui-all**：构建时经 `dsh plugin --profile web add <pkg>`（内部转发 pnpm）从 npm 安装进 profile，随 zip 分发后用户离线可用。**构建机需要 pnpm 在 PATH 上**。
+- **dsh-market / dsh-web-all**：构建时经 `dsh plugin --profile web add <pkg>`（内部转发 pnpm）从 npm 安装进 profile，随 zip 分发后用户离线可用。**构建机需要 pnpm 在 PATH 上**。
 - 构建完成后统一规整 profile 清单：依赖写为干净的精确版本，bundles 顺序固定（见上）。
 
 ---
@@ -76,7 +76,7 @@ DSH 侧边栏的「插件市场」面板：
 - 一键安装：面板内直接安装社区插件（联网时可用）；
 - 与便携包内置插件互不冲突，安装后插件在设置页统一管理。
 
-## @linxin666/dsh-web-ui-all — Web UI 全家桶
+## @linxin666/dsh-web-all — Web UI 全家桶
 
 一键聚合以下功能插件（均为本包子依赖，随包内置）：
 
@@ -114,5 +114,5 @@ DSH 侧边栏的「插件市场」面板：
 ## 升级内置插件
 
 - `dsh-file-mount`：把新版 `dsh-file-mount-<ver>.tgz` 放进仓库 `vendor/` 重新构建即可（自动选用最新文件）。
-- `dsh-market` / `dsh-web-ui-all`：构建时自动解析 npm 最新版本；如需固定版本，修改 `scripts/build.js` 的 `NPM_DEFAULT_PLUGINS` 为 `pkg@version` 形式。
+- `dsh-market` / `dsh-web-all`：构建时自动解析 npm 最新版本；如需固定版本，修改 `scripts/build.js` 的 `NPM_DEFAULT_PLUGINS` 为 `pkg@version` 形式。
 - 升级 dsh 主版本后，建议重新构建并实际验证各插件（插件作者均要求对 DSH 升级重跑验证）。

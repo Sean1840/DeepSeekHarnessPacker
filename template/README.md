@@ -38,7 +38,7 @@
 | --- | --- |
 | **dsh-file-mount** | 文件增量挂载 + 读去重：重复读只补缺失部分、文件改动只重发变更行，显著节省 token；聊天界面提供 **Mounted Files** 面板（挂载区间/新鲜度/节省统计），模型可用 `file_mount_forget` 强制重读 |
 | **dsh-market** | 侧边栏「插件市场」：浏览/搜索 1500+ DSH 插件，一键安装（联网时可用） |
-| **dsh-web-ui-all** | Web UI 全家桶：任务看板、Git 图谱、右侧预览/文件面板、鲸鱼娘宠物、移动端远程、实时 token 统计、皮肤中心、SSH、图片理解 |
+| **dsh-web-all** | Web UI 全家桶：任务看板、Git 图谱、右侧预览/文件面板、鲸鱼娘宠物、移动端远程、实时 token 统计、皮肤中心、SSH、图片理解 |
 
 无需任何配置。若想关闭或调整某个插件（如 file-mount 的 `enabled`/`excludeGlobs`），可编辑 `home\profiles\web\cordis.patch.yml` 按 dsh loader 补丁语法覆盖。
 

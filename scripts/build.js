@@ -21,7 +21,8 @@ const NODE_DIST_BASES = [
   process.env.NODE_DIST_BASE || "https://npmmirror.com/mirrors/node",
   "https://nodejs.org/dist",
 ].filter(Boolean);
-const NPM_REGISTRY = process.env.NPM_REGISTRY || "https://registry.npmmirror.com";
+// 0.1.5-alpha 依赖树在 npmmirror 上不完整（缺 dsh-base 等同版本），构建默认走官方源。
+const NPM_REGISTRY = process.env.NPM_REGISTRY || "https://registry.npmjs.org";
 const DSH_PACKAGE = "@deepseek-ai/dsh";
 // 与便携包 config.json 的 dshTag 对齐。npm `latest` 仍是 0.1.2-rc.1，GitHub 当前线在 alpha（0.1.5-alpha.x）。
 const DSH_TAG = process.env.DSH_TAG || "alpha";
@@ -32,17 +33,17 @@ const TEMPLATE_DIR = path.join(REPO, "template");
 // ---- 默认预装插件（详见 PLUGINS.md）----
 // dsh-file-mount：离线 tarball 固定在 vendor/ 下，构建时解压进 profile，无需联网。
 const VENDOR_DIR = path.join(REPO, "vendor");
-// dsh-market / dsh-web-ui-all：构建时经 `dsh plugin --profile web add`（pnpm）从 npm 安装，
+// dsh-market / dsh-web-all：构建时经 `dsh plugin --profile web add`（pnpm）从 npm 安装，
 // 打 zip 后用户侧完全离线。构建机需要 pnpm 在 PATH 上。
-const NPM_DEFAULT_PLUGINS = ["@dsh-market/plugin", "@linxin666/dsh-web-ui-all"];
 // 最终 bundles 加载顺序（固定，不随安装顺序漂移）。
 const PROFILE_BUNDLES = [
   "@deepseek-ai/dsh-base",
   "@deepseek-ai/dsh-web-app",
   "dsh-file-mount",
   "@dsh-market/plugin",
-  "@linxin666/dsh-web-ui-all",
+  "@linxin666/dsh-web-all",
 ];
+const NPM_DEFAULT_PLUGINS = PROFILE_BUNDLES.filter((p) => p !== "dsh-file-mount" && !p.startsWith("@deepseek-ai/"));
 
 function log(msg) {
   console.log(`[build] ${msg}`);
@@ -245,7 +246,7 @@ function makeZip() {
  *     cordis.patch.yml、pnpm-workspace.yaml；
  *  2) 把 vendor/ 下的 dsh-file-mount tarball 解压进 profile 的 node_modules（离线、无依赖）；
  *  3) 用 stage 自带 dsh 的 `plugin --profile web add`（转发 pnpm）联网安装
- *     NPM_DEFAULT_PLUGINS（dsh-market / dsh-web-ui-all），构建机需 pnpm 在 PATH；
+ *     NPM_DEFAULT_PLUGINS（dsh-market / dsh-web-all），构建机需 pnpm 在 PATH；
  *  4) 规整 profile 清单：依赖改写为干净的精确版本（不落机器路径），bundles 固定顺序。
  * 插件的 peer 依赖（@deepseek-ai/dsh-*）在用户首次启动时由 dsh 的
  * healProfilesModuleFallback 通过 junction 回退解析到本包 node_modules，无需打进 zip。
@@ -271,7 +272,7 @@ function installDefaultPlugins(stage, nodeExe) {
   );
   fs.writeFileSync(
     path.join(profileDir, "cordis.patch.yml"),
-    "# 此 profile 的用户补丁层。内置插件（dsh-file-mount / dsh-market / dsh-web-ui-all）已作为 bundle\n" +
+    "# 此 profile 的用户补丁层。内置插件（dsh-file-mount / dsh-market / dsh-web-all）已作为 bundle\n" +
       "# 预装并默认启用；如需调整插件配置（如 file-mount 的 enabled/capacity/excludeGlobs），\n" +
       "# 在此按 loader 补丁语法覆盖。详见包内 PLUGINS.md。\n" +
       "[]\n",
@@ -312,7 +313,7 @@ function installDefaultPlugins(stage, nodeExe) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const readVer = (p) => JSON.parse(fs.readFileSync(path.join(profileDir, "node_modules", p, "package.json"), "utf8")).version;
   manifest.dependencies = Object.fromEntries(
-    ["dsh-file-mount", "@dsh-market/plugin", "@linxin666/dsh-web-ui-all"].map((p) => [p, readVer(p)]),
+    PROFILE_BUNDLES.slice(2).map((p) => [p, readVer(p)]),
   );
   manifest.dsh = { profile: { bundles: PROFILE_BUNDLES } };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
@@ -403,7 +404,7 @@ async function main() {
   const check = run(nodeExe, [dshBin, "--version"], { cwd: STAGE });
   if (check.status !== 0) throw new Error("dsh 自检失败");
 
-  // 4.5 预装默认插件（dsh-file-mount / dsh-market / dsh-web-ui-all，离线可用）
+  // 4.5 预装默认插件（dsh-file-mount / dsh-market / dsh-web-all，离线可用）
   installDefaultPlugins(STAGE, nodeExe);
 
   // 5. 清理临时文件并打包

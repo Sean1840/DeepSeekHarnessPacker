@@ -45,16 +45,16 @@ npm run build        # 等价于 node scripts/build.js
 | --- | --- | --- |
 | [dsh-file-mount](https://github.com/acefun29/dsh-file-mount) | 0.5.1 | 增量文件挂载 + 读去重，Mounted Files 面板（离线 tarball，vendor/ 内置） |
 | [@dsh-market/plugin](https://github.com/2BingLing/dsh-market) | 0.4.5 | 插件市场：1500+ DSH 插件，一键安装 |
-| [@linxin666/dsh-web-ui-all](https://github.com/zhu1090093659/dsh-web-ui) | 0.3.6 | Web UI 全家桶：任务看板 / Git 图谱 / 右侧面板 / 宠物 / 移动端远程 / 实时统计 / 皮肤中心 |
+| [@linxin666/dsh-web-all](https://github.com/zhu1090093659/dsh-web-ui) | 0.3.19 | Web UI 全家桶（`dsh-web-ui-all` 后继包）：任务看板 / Git 图谱 / 右侧面板 / 宠物 / 移动端远程 / 实时统计 / 皮肤中心 |
 
-各插件的**功能说明、默认配置声明、配置覆盖方式与升级方法**统一管理在 **[PLUGINS.md](PLUGINS.md)**，本 README 不再展开。加载顺序固定为 `dsh-base → dsh-web-app → dsh-file-mount → @dsh-market/plugin → @linxin666/dsh-web-ui-all`。
+各插件的**功能说明、默认配置声明、配置覆盖方式与升级方法**统一管理在 **[PLUGINS.md](PLUGINS.md)**，本 README 不再展开。加载顺序固定为 `dsh-base → dsh-web-app → dsh-file-mount → @dsh-market/plugin → @linxin666/dsh-web-all`。
 
 可用环境变量：
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `NODE_DIST_BASE` | （空） | 指定后覆盖 Node 下载源；默认按 `npmmirror → nodejs.org` 顺序尝试 |
-| `NPM_REGISTRY` | `https://registry.npmmirror.com` | 预装 dsh 时的 npm 源，可改 `https://registry.npmjs.org` |
+| `NPM_REGISTRY` | `https://registry.npmjs.org` | 预装 dsh 时的 npm 源；国内可改 `https://registry.npmmirror.com`（0.1.5-alpha 依赖树目前不完整） |
 | `DSH_TAG` | `alpha` | 预装 dsh 使用的 npm dist-tag |
 | `DSH_VERSION` | （空） | 若设置则钉死具体版本，忽略 `DSH_TAG` |
 
@@ -66,7 +66,7 @@ npm run build        # 等价于 node scripts/build.js
 - **原生依赖**：dsh 的原生部分（`node-pty`、`sharp`、`koffi` 等）均为 N-API / 平台预编译包，无源码编译，Node 24 与其它版本 ABI 兼容。
 - **基于 lockfile 的增量安装**：`template/package-lock.json` 随包内置。npm 11 对**无 lockfile 的整树全新解析**存在卡死（CPU 空转，旧 rc 依赖树实测必现）；构建与用户侧的 `install.cmd`/`update.cmd` 都携带该 lockfile 走增量解析，几秒~一分钟完成且稳定。dsh 更新时构建会自动把更新后的 lockfile 回写回 `template/`。
 - **更新进度提示**：npm 11 默认关闭自带进度条（`progress=false`），下载阶段几乎无输出，用户易误以为卡死；`common.js` 的 `runNpm` 已改为实时渲染状态行（耗时 + 下载量/速率 + 请求数），并透传 npm 的 warn/error、收尾输出摘要。
-- **默认插件**：dsh-file-mount 以 vendor/ 离线 tarball 形式内置；dsh-market、dsh-web-ui-all 构建时经 `dsh plugin add`（pnpm）联网安装后打进 zip，用户侧离线可用。构建机需 pnpm 在 PATH（详见 [PLUGINS.md](PLUGINS.md)）。
+- **默认插件**：dsh-file-mount 以 vendor/ 离线 tarball 形式内置；dsh-market、dsh-web-all 构建时经 `dsh plugin add`（pnpm）联网安装后打进 zip，用户侧离线可用。构建机需 pnpm 在 PATH（详见 [PLUGINS.md](PLUGINS.md)）。
 - **端口自适应**：启动时在 `config.json` 的 `portRange`（默认 20000–21000）范围内自动检测并挑选可用端口，跳过被占用端口及业界常用端口（80/443/8080/3000/3306 等），整个范围全被占用才报错。
 
 ## 发布新版本
