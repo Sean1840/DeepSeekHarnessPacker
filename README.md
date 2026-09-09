@@ -73,4 +73,4 @@ npm run build        # 等价于 node scripts/build.js
 
 1. 双击 `build.cmd`（或 `npm run build`）生成新的 zip。
 2. 把 `dist/DeepSeekHarness-v<ver>.zip` 发到 GitHub Release。
-3. 已安装本便携包的用户双击 **`update.cmd`** 原地升级：能访问 GitHub 就自动下载；不能联网则提示选择本机 `DeepSeekHarness-v*.zip`（也可把 zip 拖到 `update.cmd` 上）。覆盖程序文件前会校验压缩包身份，**不覆盖 `home/` 和用户改过的 `config.json`**。
+3. 已安装本便携包的用户双击 **`update.cmd`** 原地升级：能访问 GitHub 就自动下载；不能联网则提示选择本机 `DeepSeekHarness-v*.zip`（也可把 zip 拖到 `update.cmd` 上）。覆盖前会校验压缩包身份。**不覆盖 `home/`、不替换用户已装插件**；dsh 内核需用户确认才升级。
