@@ -1,6 +1,6 @@
 @echo off
-rem 给老包打补丁时，请同时覆盖本文件以及 scripts\update.js、scripts\common.js，
-rem 再把新的 DeepSeekHarness-v*.zip 拖到本脚本上。只换其中一个文件无法升级。
+rem 给老包打补丁：GitHub Release 里的 DeepSeekHarness-updater-v*.zip 解压到老包根目录，
+rem 再把完整 DeepSeekHarness-v*.zip 拖到本脚本上。不要把 updater 小包拖到本脚本上。
 setlocal
 chcp 65001 >nul 2>&1
 set "DSH_DIR=%~dp0"

@@ -59,7 +59,10 @@
 
 v1.3 及更早**没有**「读本地 zip / 不覆盖插件 / 询问 dsh」这套逻辑。不必把新文件夹整份盖到旧目录上（会弄乱 `home`）。
 
-做法：从**新版 zip**（或本仓库对应文件）把下面 **3 个文件一起**拷进老包根目录（覆盖）：
+GitHub Release 上有一个很小的 **`DeepSeekHarness-updater-v*.zip`**（只有更新器，几 KB），不用解 200 MB 的完整包。
+
+1. 下载 `DeepSeekHarness-updater-v*.zip`，解压到老便携包根目录（能看到 `start.cmd` 的那一层），覆盖下面 3 个文件
+2. 再下载完整的 `DeepSeekHarness-v*.zip`，拖到已经换好的 `update.cmd` 上
 
 | 必须同时替换 | 说明 |
 | --- | --- |
@@ -67,7 +70,7 @@ v1.3 及更早**没有**「读本地 zip / 不覆盖插件 / 询问 dsh」这套
 | `scripts\update.js` | 更新流程 |
 | `scripts\common.js` | 校验、覆盖、询问 dsh、询问基础插件、保存 `.baseline-web` 备份 |
 
-然后把新的 `DeepSeekHarness-v*.zip` 拖到这个 `update.cmd` 上。
+**不要把 updater 小包拖到 `update.cmd` 上**，那不是完整便携包。
 
 **不要只换其中一个：**
 
@@ -92,7 +95,7 @@ v1.3 及更早**没有**「读本地 zip / 不覆盖插件 / 询问 dsh」这套
 
 ## 开发者：发布后用户怎么升
 
-1. `build.cmd` 打出 `dist/DeepSeekHarness-v<ver>.zip`
-2. 发到 GitHub Release
+1. `build.cmd` 打出 `dist/DeepSeekHarness-v<ver>.zip` 和 `dist/DeepSeekHarness-updater-v<ver>.zip`
+2. 两个 zip 都发到 GitHub Release
 3. 已装 **v1.4+** 的用户双击 `update.cmd` 即可
-4. 更老的包：先按上一节打 3 文件补丁，再喂新 zip
+4. 更老的包：先下 updater 小包打补丁，再喂完整 zip

@@ -10,7 +10,7 @@
 见 [更新](update.md#离线更新打不开下载页)。把 GitHub Release 的 zip 拷过来，拖到 `update.cmd` 上即可。
 
 **Q：老版本便携包没有自动更新怎么办？**  
-见 [给老包打补丁](update.md#给老包打补丁v13-及更早)。把新包里的 `update.cmd`、`scripts\update.js`、`scripts\common.js` **三个一起**拷进老目录，再把新 zip 拖到 `update.cmd` 上。不要整目录覆盖 `home`。
+见 [给老包打补丁](update.md#给老包打补丁v13-及更早)。GitHub Release 里有单独的 `DeepSeekHarness-updater-v*.zip`（只有 3 个文件，不用解完整包）。把它解压到老包根目录，再把完整的 `DeepSeekHarness-v*.zip` 拖到 `update.cmd` 上。不要整目录覆盖 `home`，也不要把 updater 小包拖到 `update.cmd` 上。
 
 **Q：更新会不会把对话、API Key 或插件弄丢？**  
 不会。`home`（含已装插件）和你改过的 `config.json` 都保留。dsh 内核只有你在提示里同意才会替换。本包基础插件也只有你同意刷新时才换；你自己装的插件不会删。

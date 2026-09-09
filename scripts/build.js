@@ -239,6 +239,41 @@ function makeZip() {
   log(`完成: ${zipPath}（${sizeMb} MB）`);
 }
 
+const UPDATER_README =
+  "老便携包三文件补丁\r\n" +
+  "\r\n" +
+  "这个小包只有更新器，不是完整程序。不要把它拖到 update.cmd 上。\r\n" +
+  "\r\n" +
+  "用法：\r\n" +
+  "1. 解压到老便携包根目录（能看到 start.cmd 的那一层），覆盖这 3 个文件：\r\n" +
+  "     update.cmd\r\n" +
+  "     scripts\\update.js\r\n" +
+  "     scripts\\common.js\r\n" +
+  "2. 再从同一个 GitHub Release 下载完整的 DeepSeekHarness-v*.zip（大约 200 MB）\r\n" +
+  "3. 把那个完整 zip 拖到已经换好的 update.cmd 上\r\n" +
+  "\r\n" +
+  "三个文件必须一起换。只换其中一个无法升级。\r\n" +
+  "对话、设置和已装插件不会被覆盖。\r\n";
+
+/** 老包打补丁用的小 zip：不解完整便携包也能拿到 update.cmd + 两个 js。 */
+function makeUpdaterZip(pkgVer) {
+  const stage = path.join(DIST, ".updater-stage");
+  fs.rmSync(stage, { recursive: true, force: true });
+  fs.mkdirSync(path.join(stage, "scripts"), { recursive: true });
+  fs.copyFileSync(path.join(TEMPLATE_DIR, "update.cmd"), path.join(stage, "update.cmd"));
+  fs.copyFileSync(path.join(REPO, "scripts", "update.js"), path.join(stage, "scripts", "update.js"));
+  fs.copyFileSync(path.join(REPO, "scripts", "common.js"), path.join(stage, "scripts", "common.js"));
+  fs.writeFileSync(path.join(stage, "使用说明.txt"), UPDATER_README, "utf8");
+  const zipName = `DeepSeekHarness-updater-v${pkgVer}.zip`;
+  const zipPath = path.join(DIST, zipName);
+  if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
+  log(`打包 ${zipName}…`);
+  zipDirectory(stage, zipPath, "");
+  fs.rmSync(stage, { recursive: true, force: true });
+  const sizeKb = (fs.statSync(zipPath).size / 1024).toFixed(1);
+  log(`完成: ${zipPath}（${sizeKb} KB）`);
+}
+
 /**
  * 预装全部默认插件到便携包的 web profile（默认启用、打包进 zip 后用户离线可用）。
  * 流程：
@@ -322,6 +357,12 @@ function installDefaultPlugins(stage, nodeExe) {
 
 async function main() {
   process.chdir(REPO); // 无论从哪调用都回到仓库根，避免 cwd 恰好在 dist 内导致无法删除
+  const pkgVer = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).version;
+  if (process.argv.includes("--updater-only")) {
+    fs.mkdirSync(DIST, { recursive: true });
+    makeUpdaterZip(pkgVer);
+    return;
+  }
   log("清理旧构建…");
   rmDirRetry(DIST);
   fs.mkdirSync(STAGE, { recursive: true });
@@ -368,7 +409,6 @@ async function main() {
 
   // 3. 预装 dsh（用刚解压的便携 node 的 npm，保证 ABI 一致）
   const dshVersion = await resolveDshVersion();
-  const pkgVer = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8")).version;
   log(`预装 dsh 版本: ${dshVersion}`);
   fs.writeFileSync(
     path.join(STAGE, "package.json"),
@@ -412,9 +452,10 @@ async function main() {
   // 4.5 预装默认插件（dsh-file-mount / dsh-market / dsh-web-all，离线可用）
   installDefaultPlugins(STAGE, nodeExe);
 
-  // 5. 清理临时文件并打包
+  // 5. 清理临时文件并打包（完整便携包 + 老包三文件补丁）
   fs.rmSync(TMP, { recursive: true, force: true });
   makeZip();
+  makeUpdaterZip(pkgVer);
 
   log("全部完成。");
 }

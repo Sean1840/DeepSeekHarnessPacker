@@ -425,7 +425,7 @@ const GITHUB_HEADERS = {
 
 /**
  * 查询 GitHub latest release。返回 { version, name, url, size } 或 null。
- * 资源名匹配 DeepSeekHarness-v*.zip，排除 Finance。
+ * 资源名匹配 DeepSeekHarness-v1.2.3.zip，排除 Finance 和 updater 补丁包。
  */
 export async function latestPackerRelease(config = {}) {
   const repo = config.updateRepo || DEFAULT_CONFIG.updateRepo;
@@ -436,7 +436,10 @@ export async function latestPackerRelease(config = {}) {
   const version = String(data.tag_name || "").replace(/^v/i, "");
   if (!version) throw new Error("GitHub release 无 tag");
   const asset = (data.assets || []).find(
-    (a) => /^DeepSeekHarness-v.+\.zip$/i.test(a.name) && !/finance/i.test(a.name),
+    (a) =>
+      /^DeepSeekHarness-v\d+\.\d+\.\d+.*\.zip$/i.test(a.name) &&
+      !/finance/i.test(a.name) &&
+      !/updater/i.test(a.name),
   );
   if (!asset?.browser_download_url) throw new Error("release 中没有便携包 zip");
   return { version, name: asset.name, url: asset.browser_download_url, size: Number(asset.size) || 0 };
@@ -1022,7 +1025,7 @@ function findSidecarZips() {
   const out = [];
   try {
     for (const f of fs.readdirSync(ROOT)) {
-      if (/^DeepSeekHarness-v\d+\.\d+\.\d+.*\.zip$/i.test(f) && !/finance/i.test(f)) {
+      if (/^DeepSeekHarness-v\d+\.\d+\.\d+.*\.zip$/i.test(f) && !/finance/i.test(f) && !/updater/i.test(f)) {
         out.push(path.join(ROOT, f));
       }
     }
@@ -1046,6 +1049,11 @@ export function inspectAndExtractPortableZip(zipPath, extractDir) {
   }
   if (/finance/i.test(path.basename(resolved))) {
     throw new Error("这是金融特化版文件名，请使用标准版 DeepSeekHarness-v*.zip");
+  }
+  if (/updater/i.test(path.basename(resolved))) {
+    throw new Error(
+      "这是老包三文件补丁，不是完整便携包。请把它解压到老包根目录（有 start.cmd 的那一层），再下载 DeepSeekHarness-v*.zip 拖到 update.cmd 上。",
+    );
   }
   const entries = listZipEntries(resolved);
   if (!entries.length) throw new Error("压缩包是空的");

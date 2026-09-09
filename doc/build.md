@@ -1,6 +1,6 @@
 # 构建
 
-本仓库打出可分发的 Windows 绿色包：`dist/DeepSeekHarness-v<ver>.zip`。
+本仓库打出可分发的 Windows 绿色包：`dist/DeepSeekHarness-v<ver>.zip`，以及老包三文件补丁 `dist/DeepSeekHarness-updater-v<ver>.zip`。
 
 ## 怎么构建
 
@@ -10,6 +10,7 @@
 
 ```bash
 npm run build        # 等价于 node scripts/build.js
+node scripts/build.js --updater-only   # 只打三文件补丁小包，不重打完整便携包
 ```
 
 流程：下载便携 Node.js（x64，Node 24 LTS）→ 复制管理器、模板和 `doc/` → 用便携 Node 预装 dsh → 自检 → 预装默认插件（**构建机需 pnpm 在 PATH**，见 [插件](plugins.md)）→ 打包 zip。

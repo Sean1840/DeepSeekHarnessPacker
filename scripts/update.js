@@ -1,7 +1,8 @@
 // 手动更新：便携包程序文件（GitHub 或本地 zip）+ 询问后升级 dsh 内核。
 // 不覆盖 home/（会话、凭证、已装插件），不覆盖用户改过的 config.json 项。
 // 内核升级且基础插件落后时，再问是否刷新本包基础插件（用户 extras 保留）。
-// 给老包打补丁时必须同时替换：update.cmd、本文件、scripts/common.js。
+// 给老包打补丁：解压 GitHub Release 的 DeepSeekHarness-updater-v*.zip 到老包根目录，
+// 再把完整 DeepSeekHarness-v*.zip 拖到 update.cmd 上。不要把 updater 小包拖到脚本上。
 
 import { banner, readConfig, runUpdates } from "./common.js";
 
