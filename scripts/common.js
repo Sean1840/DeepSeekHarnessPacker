@@ -765,7 +765,7 @@ async function maybeRefreshBaselinePlugins(sourceDir, { becauseDshUpgraded = fal
     console.log("dsh 内核已更换。当前基础插件与本包不一致，继续用旧插件可能会无法启动。");
   }
   printBaselineSkew(skew);
-  console.log("刷新只会替换本包提供的基础插件（Web UI / 插件市场 / 文件挂载）。");
+  console.log("刷新只会替换本包提供的基础插件（Web UI / 插件市场）。");
   console.log("你自己装的插件、对话和设置都保留。");
   if (!(await askYesNo("是否刷新基础插件？[Y/n] "))) {
     console.log("已跳过。若之后无法启动，再运行 start.cmd 会提示修复。");
@@ -795,6 +795,10 @@ function hintStalePlugins(payload) {
   } else if (skew.extras.length) {
     const show = skew.extras.slice(0, 8).join("、");
     console.log(`你自行安装的插件未改动：${show}${skew.extras.length > 8 ? " 等" : ""}`);
+  }
+  const liveDeps = pluginDeps(readJsonSilent(path.join(webProfileDir(), "package.json")));
+  if ("dsh-file-mount" in liveDeps) {
+    console.log("提示：dsh-file-mount 已从本包默认插件撤下（与当前内核会话格式不兼容，会导致历史加载失败）。建议在网页「设置 → 插件」里卸载。");
   }
 }
 

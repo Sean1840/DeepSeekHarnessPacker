@@ -31,19 +31,18 @@ const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js"];
 const TEMPLATE_DIR = path.join(REPO, "template");
 
 // ---- 默认预装插件（详见 doc/plugins.md）----
-// dsh-file-mount：离线 tarball 固定在 vendor/ 下，构建时解压进 profile，无需联网。
-const VENDOR_DIR = path.join(REPO, "vendor");
 // dsh-market / dsh-web-all：构建时经 `dsh plugin --profile web add`（pnpm）从 npm 安装，
 // 打 zip 后用户侧完全离线。构建机需要 pnpm 在 PATH 上。
+// dsh-file-mount 已从默认包撤下：0.5.1 写入的会话 source.path 等字段会被
+// dsh 0.1.5-alpha 的 v0-to-v1 拒绝，导致历史加载失败。
 // 最终 bundles 加载顺序（固定，不随安装顺序漂移）。
 const PROFILE_BUNDLES = [
   "@deepseek-ai/dsh-base",
   "@deepseek-ai/dsh-web-app",
-  "dsh-file-mount",
   "@dsh-market/plugin",
   "@linxin666/dsh-web-all",
 ];
-const NPM_DEFAULT_PLUGINS = PROFILE_BUNDLES.filter((p) => p !== "dsh-file-mount" && !p.startsWith("@deepseek-ai/"));
+const NPM_DEFAULT_PLUGINS = PROFILE_BUNDLES.filter((p) => !p.startsWith("@deepseek-ai/"));
 
 function log(msg) {
   console.log(`[build] ${msg}`);
@@ -279,19 +278,16 @@ function makeUpdaterZip(pkgVer) {
 /**
  * 预装全部默认插件到便携包的 web profile（默认启用、打包进 zip 后用户离线可用）。
  * 流程：
- *  1) 写入 profile 清单（bundles 初始：内置 bundle + 离线插件 dsh-file-mount）、
- *     cordis.patch.yml、pnpm-workspace.yaml；
- *  2) 把 vendor/ 下的 dsh-file-mount tarball 解压进 profile 的 node_modules（离线、无依赖）；
- *  3) 用 stage 自带 dsh 的 `plugin --profile web add`（转发 pnpm）联网安装
+ *  1) 写入 profile 清单（bundles 初始：内置 bundle）、cordis.patch.yml、pnpm-workspace.yaml；
+ *  2) 用 stage 自带 dsh 的 `plugin --profile web add`（转发 pnpm）联网安装
  *     NPM_DEFAULT_PLUGINS（dsh-market / dsh-web-all），构建机需 pnpm 在 PATH；
- *  4) 规整 profile 清单：依赖改写为干净的精确版本（不落机器路径），bundles 固定顺序。
+ *  3) 规整 profile 清单：依赖改写为干净的精确版本（不落机器路径），bundles 固定顺序。
  * 插件的 peer 依赖（@deepseek-ai/dsh-*）在用户首次启动时由 dsh 的
  * healProfilesModuleFallback 通过 junction 回退解析到本包 node_modules，无需打进 zip。
  */
 function installDefaultPlugins(stage, nodeExe) {
   const profileDir = path.join(stage, "home", "profiles", "web");
-  const fmPkgDir = path.join(profileDir, "node_modules", "dsh-file-mount");
-  fs.mkdirSync(fmPkgDir, { recursive: true });
+  fs.mkdirSync(path.join(profileDir, "node_modules"), { recursive: true });
 
   // 1) profile 清单与基础文件
   fs.writeFileSync(
@@ -301,7 +297,7 @@ function installDefaultPlugins(stage, nodeExe) {
         name: "dsh-profile-web",
         private: true,
         dependencies: {},
-        dsh: { profile: { bundles: PROFILE_BUNDLES.slice(0, 3) } },
+        dsh: { profile: { bundles: PROFILE_BUNDLES.slice(0, 2) } },
       },
       null,
       2,
@@ -309,9 +305,9 @@ function installDefaultPlugins(stage, nodeExe) {
   );
   fs.writeFileSync(
     path.join(profileDir, "cordis.patch.yml"),
-    "# 此 profile 的用户补丁层。内置插件（dsh-file-mount / dsh-market / dsh-web-all）已作为 bundle\n" +
-      "# 预装并默认启用；如需调整插件配置（如 file-mount 的 enabled/capacity/excludeGlobs），\n" +
-      "# 在此按 loader 补丁语法覆盖。详见包内 doc/plugins.md。\n" +
+    "# 此 profile 的用户补丁层。内置插件（dsh-market / dsh-web-all）已作为 bundle\n" +
+      "# 预装并默认启用；如需调整插件配置，在此按 loader 补丁语法覆盖。\n" +
+      "# 详见包内 doc/plugins.md。\n" +
       "[]\n",
   );
   fs.writeFileSync(
@@ -319,24 +315,7 @@ function installDefaultPlugins(stage, nodeExe) {
     "packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n",
   );
 
-  // 2) 离线插件 dsh-file-mount（vendor tarball）
-  let tgz = null;
-  if (fs.existsSync(VENDOR_DIR)) {
-    tgz = fs.readdirSync(VENDOR_DIR).find((f) => /^dsh-file-mount-\d+\.\d+\.\d+\.tgz$/.test(f));
-  }
-  if (!tgz) throw new Error("vendor/ 下未找到 dsh-file-mount tarball，构建必需（见 doc/plugins.md）");
-  // 解压（tar 输出 package/ 前缀，strip 掉；bsdtar 3.8+ 不支持 --force-local，GNU tar 需要，先试无参）
-  const tmp = path.join(TMP, "plugin-extract");
-  fs.mkdirSync(tmp, { recursive: true });
-  const extractArgs = ["-xzf", path.join(VENDOR_DIR, tgz), "-C", tmp, "--strip-components", "1"];
-  let tar = run("tar", extractArgs);
-  if (tar.status !== 0) tar = run("tar", ["--force-local", ...extractArgs]);
-  if (tar.status !== 0) throw new Error("dsh-file-mount tarball 解压失败");
-  fs.cpSync(tmp, fmPkgDir, { recursive: true });
-  fs.rmSync(tmp, { recursive: true, force: true });
-  log(`已装入离线插件 dsh-file-mount（${tgz}）`);
-
-  // 3) 联网安装其余默认插件（复用 dsh plugin 官方流程，自动 reconcile bundles）
+  // 2) 联网安装默认插件（复用 dsh plugin 官方流程，自动 reconcile bundles）
   const dshBin = path.join(stage, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
   const pluginEnv = { ...process.env, DSH_HOME: path.join(stage, "home") };
   for (const pkg of NPM_DEFAULT_PLUGINS) {
@@ -345,7 +324,7 @@ function installDefaultPlugins(stage, nodeExe) {
     if (res.status !== 0) throw new Error(`默认插件 ${pkg} 安装失败（构建机需要 pnpm 在 PATH 上）`);
   }
 
-  // 4) 规整 profile 清单：依赖用已装精确版本（不写机器路径），bundles 固定顺序
+  // 3) 规整 profile 清单：依赖用已装精确版本（不写机器路径），bundles 固定顺序
   const manifestPath = path.join(profileDir, "package.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const readVer = (p) => JSON.parse(fs.readFileSync(path.join(profileDir, "node_modules", p, "package.json"), "utf8")).version;
@@ -451,7 +430,7 @@ async function main() {
   const check = run(nodeExe, [dshBin, "--version"], { cwd: STAGE });
   if (check.status !== 0) throw new Error("dsh 自检失败");
 
-  // 4.5 预装默认插件（dsh-file-mount / dsh-market / dsh-web-all，离线可用）
+  // 4.5 预装默认插件（dsh-market / dsh-web-all，离线可用）
   installDefaultPlugins(STAGE, nodeExe);
 
   // 5. 清理临时文件并打包（完整便携包 + 老包三文件补丁）

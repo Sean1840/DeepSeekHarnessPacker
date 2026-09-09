@@ -38,6 +38,6 @@ scripts/                管理器核心（Node.js，UTF-8）
 doc/                    模块文档（进 zip，README 只做索引）
 template/               打进 zip 的静态文件
   config.json / *.cmd / README.md
-vendor/                 离线插件 tarball（dsh-file-mount）
+vendor/                 （空；曾放 dsh-file-mount，已从默认包撤下）
 dist/                   构建产物（gitignore）
 ```
