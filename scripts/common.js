@@ -1268,12 +1268,14 @@ async function applyLocalZip(zipPath, cur) {
 /**
  * 便携包自更新 + dsh 引擎更新。
  * interactive=true 时询问是否更新；update.cmd 传 false 表示确认更新。
- * packer=false 时不探测 GitHub、不校验便携包版本（给 start.cmd 用，只允许升 dsh）。
+ * packer=true：整体升级本项目 zip（程序文件 + zip 内 dsh），不另走 npm 装内核。
+ * packer=false：不探测 GitHub、不校验便携包版本（start.cmd）。
+ * dshNpm=true：启动时允许从 npm 升 dsh 内核。
  * 不能访问 GitHub 下载页时，改为使用本地 zip（参数 / 旁路文件 / 手动输入路径）。
  */
 export async function runUpdates(
   config,
-  { interactive = false, allowLocalPrompt = false, localZip = null, packer = true } = {},
+  { interactive = false, allowLocalPrompt = false, localZip = null, packer = true, dshNpm = false } = {},
 ) {
   const result = { packer: null, dsh: null };
   const cur = packerVersion() || "0.0.0";
@@ -1350,13 +1352,13 @@ export async function runUpdates(
   }
   if (packer) console.log("");
 
+  if (!dshNpm) return result;
+
   const current = installedVersion();
   if (!current) return result;
   if (!(await networkReachable(config.registry, config.dshPackage, config.dshTag))) {
-    if (!result.packer) {
-      console.log("[提示] 离线模式：无法联网更新 dsh，使用本地版本。");
-      console.log("");
-    }
+    console.log("[提示] 离线模式：无法联网更新 dsh，使用本地版本。");
+    console.log("");
     return result;
   }
   const latestDsh = await latestVersion(config.registry, config.dshPackage, config.dshTag);

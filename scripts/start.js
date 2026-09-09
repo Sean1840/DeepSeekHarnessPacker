@@ -116,6 +116,7 @@ async function main() {
       interactive: config.autoUpdate !== "auto",
       allowLocalPrompt: false,
       packer: false,
+      dshNpm: true,
     });
   }
 
