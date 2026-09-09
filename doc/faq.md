@@ -13,7 +13,13 @@
 见 [给老包打补丁](update.md#给老包打补丁v13-及更早)。把新包里的 `update.cmd`、`scripts\update.js`、`scripts\common.js` **三个一起**拷进老目录，再把新 zip 拖到 `update.cmd` 上。不要整目录覆盖 `home`。
 
 **Q：更新会不会把对话、API Key 或插件弄丢？**  
-不会。`home`（含已装插件）和你改过的 `config.json` 都保留。dsh 内核只有你在提示里同意才会替换。
+不会。`home`（含已装插件）和你改过的 `config.json` 都保留。dsh 内核只有你在提示里同意才会替换。本包基础插件也只有你同意刷新时才换；你自己装的插件不会删。
+
+**Q：更新完双击 start.cmd 立刻退出，窗口里有 plugin tree failed / settingsNamespace？**  
+这是内核已经升上去、Web UI 基础插件还是旧包。再运行 `start.cmd`，按提示刷新基础插件即可。也可以把 `DeepSeekHarness-v*.zip` 拖到 `update.cmd` 上，升级内核后同意刷新基础插件。自己装的插件、对话和设置都会保留。
+
+**Q：`.baseline-web` 是什么？**  
+上次用 zip 更新时留下的出厂基础插件备份，给启动失败修复用。不是会话数据，可删；下次 zip 更新会再生成。
 
 **Q：更新/安装时屏幕上的 `[更新中] 耗时… 下载…` 是什么？**  
 npm 11 默认不显示进度条。本包自己画进度：耗时、下载量、速率、请求数。速率长期为 0 且耗时一直涨，说明网络异常，可 `Ctrl+C` 后检查网络再试。

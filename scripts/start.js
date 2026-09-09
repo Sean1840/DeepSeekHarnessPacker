@@ -3,6 +3,7 @@
 //   off  → 直接启动（纯离线）
 //   ask  → 联网且有新版本时询问用户（默认）
 //   auto → 联网且有新版本时自动更新
+// 若 dsh 因基础插件与内核不匹配而立刻退出，询问后刷新基础插件并重试一次。
 
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -16,12 +17,59 @@ import {
   openBrowser,
   findFreePort,
   runUpdates,
+  recoverPluginsAfterBootFailure,
 } from "./common.js";
 
-/** 启动 dsh web（前台长驻，继承终端）。 */
-function launch(config, port) {
+function runDshWeb(config, port) {
   const node = resolveNode();
   const dshBin = resolveDshBin();
+  const dshHome = path.join(ROOT, config.homeDir);
+  const url = `http://127.0.0.1:${port}`;
+
+  return new Promise((resolve) => {
+    let log = "";
+    const child = spawn(node, [dshBin, "web", "--port", String(port), "--no-open"], {
+      cwd: ROOT,
+      stdio: ["inherit", "pipe", "pipe"],
+      env: { ...process.env, DSH_HOME: dshHome },
+    });
+
+    const feed = (buf) => {
+      const s = buf.toString();
+      log += s;
+      if (log.length > 200000) log = log.slice(-120000);
+      process.stdout.write(s);
+    };
+    child.stdout?.on("data", feed);
+    child.stderr?.on("data", feed);
+
+    let browserTimer = null;
+    if (config.openBrowser) {
+      browserTimer = setTimeout(() => openBrowser(url), 4000);
+    }
+
+    const finish = (payload) => {
+      if (browserTimer) clearTimeout(browserTimer);
+      resolve(payload);
+    };
+
+    child.on("error", (err) => {
+      console.error(`[错误] 启动失败: ${err.message}`);
+      finish({ code: 1, log, error: err, cameUp: /dsh web:\s*http:\/\//i.test(log) });
+    });
+    child.on("exit", (code, signal) => {
+      finish({
+        code: code ?? 0,
+        signal,
+        log,
+        cameUp: /dsh web:\s*http:\/\//i.test(log),
+      });
+    });
+  });
+}
+
+/** 启动 dsh web；插件树加载失败时允许修复一次后再拉起。 */
+async function launch(config, port) {
   const dshHome = path.join(ROOT, config.homeDir);
   const url = `http://127.0.0.1:${port}`;
 
@@ -31,24 +79,22 @@ function launch(config, port) {
   console.log("首次使用请在网页「设置 → 模型」中填入 DeepSeek API Key。");
   console.log("");
 
-  // dsh web 默认也会打开浏览器；这里由便携包按选中的端口统一打开，避免弹两个窗口。
-  const child = spawn(node, [dshBin, "web", "--port", String(port), "--no-open"], {
-    cwd: ROOT,
-    stdio: "inherit",
-    env: { ...process.env, DSH_HOME: dshHome },
-  });
-
-  if (config.openBrowser) {
-    setTimeout(() => openBrowser(url), 4000);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await runDshWeb(config, port);
+    if (result.cameUp || result.signal === "SIGINT" || result.signal === "SIGTERM") {
+      process.exit(result.code ?? 0);
+    }
+    if (attempt === 0) {
+      const recovered = await recoverPluginsAfterBootFailure(result.log || result.error?.message || "");
+      if (recovered) {
+        console.log("");
+        console.log("正在重新启动…");
+        console.log("");
+        continue;
+      }
+    }
+    process.exit(result.code ?? 1);
   }
-
-  child.on("exit", (code) => {
-    process.exit(code ?? 0);
-  });
-  child.on("error", (err) => {
-    console.error(`[错误] 启动失败: ${err.message}`);
-    process.exit(1);
-  });
 }
 
 async function main() {
@@ -81,7 +127,7 @@ async function main() {
     console.log("");
   }
 
-  launch(config, port);
+  await launch(config, port);
 }
 
 main();

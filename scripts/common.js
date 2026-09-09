@@ -1,5 +1,7 @@
 // DeepSeek Harness 便携版 —— 公共工具
 // 运行于便携包根目录下的 scripts/ 中，__dirname 即 scripts 目录，ROOT 为其父目录。
+// 更新不覆盖用户 home；dsh 内核与基础插件均需确认。zip 的出厂 web profile 会存到 .baseline-web，
+// 供内核跳跃后启动失败时修复（只刷新基础插件，保留 extras）。
 
 import fs from "node:fs";
 import path from "node:path";
@@ -564,48 +566,303 @@ function readJsonSilent(file) {
   }
 }
 
-function userPluginVersions() {
-  const homeName = readConfig().homeDir || "home";
-  const pkg = readJsonSilent(path.join(ROOT, homeName, "profiles", "web", "package.json"));
-  return pkg?.dependencies && typeof pkg.dependencies === "object" ? pkg.dependencies : {};
-}
-
-function payloadPluginVersions(payload) {
-  const pkg = readJsonSilent(path.join(payload, "home", "profiles", "web", "package.json"));
-  return pkg?.dependencies && typeof pkg.dependencies === "object" ? pkg.dependencies : {};
-}
-
 function payloadDshVersion(payload) {
   const pkg = readJsonSilent(path.join(payload, "node_modules", "@deepseek-ai", "dsh", "package.json"));
   return pkg?.version ? String(pkg.version) : null;
 }
 
-/** 只提示，不改用户插件。压缩包仅作为「本包基础版本」对照。 */
-function hintStalePlugins(payload) {
-  const user = userPluginVersions();
-  const bundled = payloadPluginVersions(payload);
-  const stale = [];
-  for (const [name, packVer] of Object.entries(bundled)) {
-    const have = user[name];
-    if (!have) continue;
-    const pack = coercePluginVer(packVer);
-    const cur = coercePluginVer(have);
-    if (!pack || !cur) continue;
-    if (compareVersions(pack, cur) > 0) stale.push({ name, have: cur, pack });
+/** 老包基础插件更名：zip 里是新名时，用户目录里的旧名视为同一基础插件。 */
+const PLUGIN_SUCCESSORS = {
+  "@linxin666/dsh-web-ui-all": "@linxin666/dsh-web-all",
+};
+
+function baselineWebDir() {
+  return path.join(ROOT, ".baseline-web");
+}
+
+function webProfileDir() {
+  const homeName = readConfig().homeDir || "home";
+  return path.join(ROOT, homeName, "profiles", "web");
+}
+
+function payloadWebDir(payload) {
+  return path.join(payload, "home", "profiles", "web");
+}
+
+function successorOf(name) {
+  return PLUGIN_SUCCESSORS[name] || null;
+}
+
+function predecessorOf(name) {
+  for (const [oldName, newName] of Object.entries(PLUGIN_SUCCESSORS)) {
+    if (newName === name) return oldName;
   }
-  console.log("你已安装的插件不会随本次更新被替换，请自行在网页「设置 → 插件」里升级。");
-  if (stale.length) {
-    console.log("以下插件比本包提供的基础版本旧，可以考虑升级：");
-    for (const s of stale.slice(0, 12)) {
+  return null;
+}
+
+function pluginDeps(manifest) {
+  return manifest?.dependencies && typeof manifest.dependencies === "object" ? manifest.dependencies : {};
+}
+
+function analyzeBaselineSkew(sourceDir, liveDir = webProfileDir()) {
+  const source = readJsonSilent(path.join(sourceDir, "package.json"));
+  const live = readJsonSilent(path.join(liveDir, "package.json"));
+  const sourceDeps = pluginDeps(source);
+  const liveDeps = pluginDeps(live);
+  const missing = [];
+  const stale = [];
+  const replaced = [];
+  for (const [name, packVer] of Object.entries(sourceDeps)) {
+    const pack = coercePluginVer(packVer) || String(packVer);
+    const pred = predecessorOf(name);
+    if (pred && pred in liveDeps && !(name in liveDeps)) {
+      replaced.push({
+        from: pred,
+        to: name,
+        have: coercePluginVer(liveDeps[pred]) || String(liveDeps[pred]),
+        pack,
+      });
+      continue;
+    }
+    if (!(name in liveDeps)) {
+      missing.push({ name, pack });
+      continue;
+    }
+    const cur = coercePluginVer(liveDeps[name]);
+    const packCmp = coercePluginVer(packVer);
+    if (packCmp && cur && compareVersions(packCmp, cur) > 0) {
+      stale.push({ name, have: cur, pack: packCmp });
+    }
+  }
+  const extras = Object.keys(liveDeps).filter((k) => {
+    if (k in sourceDeps) return false;
+    const succ = successorOf(k);
+    if (succ && succ in sourceDeps) return false;
+    return true;
+  });
+  return {
+    missing,
+    stale,
+    replaced,
+    extras,
+    needsRefresh: missing.length + stale.length + replaced.length > 0,
+  };
+}
+
+function printBaselineSkew(skew) {
+  if (skew.replaced.length) {
+    console.log("以下基础插件已更名，旧包无法在新内核上启动：");
+    for (const r of skew.replaced) {
+      console.log(`  ${r.from}  当前 ${r.have}  → ${r.to} ${r.pack}`);
+    }
+  }
+  if (skew.missing.length) {
+    console.log("本包基础插件尚未安装：");
+    for (const m of skew.missing.slice(0, 12)) console.log(`  ${m.name}  ${m.pack}`);
+  }
+  if (skew.stale.length) {
+    console.log("以下基础插件比本包提供的旧：");
+    for (const s of skew.stale.slice(0, 12)) {
       console.log(`  ${s.name}  当前 ${s.have}  → 本包 ${s.pack}`);
     }
-    if (stale.length > 12) console.log(`  …另有 ${stale.length - 12} 个`);
+    if (skew.stale.length > 12) console.log(`  …另有 ${skew.stale.length - 12} 个`);
   }
-  const extra = Object.keys(user).filter((k) => !(k in bundled));
-  if (extra.length) {
-    const show = extra.slice(0, 8).join("、");
-    console.log(`你自行安装的插件未改动：${show}${extra.length > 8 ? " 等" : ""}`);
+  if (skew.extras.length) {
+    const show = skew.extras.slice(0, 8).join("、");
+    console.log(`你自行安装的插件不会删除：${show}${skew.extras.length > 8 ? " 等" : ""}`);
   }
+}
+
+function hasBaselineWebCache() {
+  const dir = baselineWebDir();
+  return fs.existsSync(path.join(dir, "package.json")) && fs.existsSync(path.join(dir, "node_modules"));
+}
+
+/** 把压缩包里的出厂 web profile 挪到 .baseline-web，供日后启动失败修复。不覆盖用户 home。 */
+function cacheBaselineWebFromPayload(payload) {
+  const src = payloadWebDir(payload);
+  if (!fs.existsSync(path.join(src, "package.json"))) return false;
+  const dst = baselineWebDir();
+  console.log("正在保存本包基础插件备份（启动失败时可用来修复）…");
+  if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true });
+  try {
+    fs.renameSync(src, dst);
+  } catch {
+    fs.cpSync(src, dst, { recursive: true, force: true });
+  }
+  for (const f of ["cordis.patch.yml", "cordis.yml", "cordis.patch.yml.bak"]) {
+    try {
+      fs.rmSync(path.join(dst, f), { force: true });
+    } catch {
+      /* 备份里不保留用户补丁 */
+    }
+  }
+  return hasBaselineWebCache();
+}
+
+/**
+ * 用 sourceDir（zip 内 web profile 或 .baseline-web）刷新 live 基础插件。
+ * 只改 baseline 依赖/bundles，合并 node_modules；不碰 cordis.patch.yml 和用户 extras。
+ */
+function refreshBaselinePlugins(sourceDir) {
+  const srcPkg = path.join(sourceDir, "package.json");
+  const liveDir = webProfileDir();
+  if (!fs.existsSync(srcPkg)) throw new Error("找不到本包基础插件备份");
+  fs.mkdirSync(liveDir, { recursive: true });
+  const source = readJsonSilent(srcPkg) || {};
+  const livePath = path.join(liveDir, "package.json");
+  const live = readJsonSilent(livePath) || {
+    name: "dsh-profile-web",
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: [] } },
+  };
+  live.dependencies = { ...(live.dependencies || {}) };
+  const sourceDeps = pluginDeps(source);
+  const sourceBundles = source?.dsh?.profile?.bundles || [];
+
+  for (const [oldName, newName] of Object.entries(PLUGIN_SUCCESSORS)) {
+    if (newName in sourceDeps && oldName in live.dependencies) delete live.dependencies[oldName];
+  }
+  for (const [name, ver] of Object.entries(sourceDeps)) {
+    live.dependencies[name] = ver;
+  }
+
+  const liveBundles = live.dsh?.profile?.bundles || [];
+  const extraBundles = liveBundles.filter((b) => {
+    if (sourceBundles.includes(b)) return false;
+    const succ = successorOf(b);
+    if (succ && succ in sourceDeps) return false;
+    return true;
+  });
+  live.name = live.name || "dsh-profile-web";
+  live.private = true;
+  live.dsh = live.dsh || { profile: {} };
+  live.dsh.profile = live.dsh.profile || {};
+  live.dsh.profile.bundles = [...sourceBundles, ...extraBundles];
+  fs.writeFileSync(livePath, JSON.stringify(live, null, 2) + "\n");
+
+  const srcNm = path.join(sourceDir, "node_modules");
+  const dstNm = path.join(liveDir, "node_modules");
+  if (fs.existsSync(srcNm)) {
+    console.log("正在写入基础插件文件（不会删除你自己装的插件）…");
+    fs.cpSync(srcNm, dstNm, { recursive: true, force: true });
+  }
+  const ws = path.join(sourceDir, "pnpm-workspace.yaml");
+  const liveWs = path.join(liveDir, "pnpm-workspace.yaml");
+  if (fs.existsSync(ws) && !fs.existsSync(liveWs)) fs.copyFileSync(ws, liveWs);
+}
+
+async function maybeRefreshBaselinePlugins(sourceDir, { becauseDshUpgraded = false } = {}) {
+  if (!sourceDir || !fs.existsSync(path.join(sourceDir, "package.json"))) return false;
+  const skew = analyzeBaselineSkew(sourceDir);
+  if (!skew.needsRefresh) return false;
+  console.log("");
+  if (becauseDshUpgraded) {
+    console.log("dsh 内核已更换。当前基础插件与本包不一致，继续用旧插件可能会无法启动。");
+  }
+  printBaselineSkew(skew);
+  console.log("刷新只会替换本包提供的基础插件（Web UI / 插件市场 / 文件挂载）。");
+  console.log("你自己装的插件、对话和设置都保留。");
+  if (!(await askYesNo("是否刷新基础插件？[Y/n] "))) {
+    console.log("已跳过。若之后无法启动，再运行 start.cmd 会提示修复。");
+    return false;
+  }
+  refreshBaselinePlugins(sourceDir);
+  console.log("基础插件已刷新。");
+  return true;
+}
+
+async function afterPayloadApplied(payload, dshUpgraded) {
+  const web = payloadWebDir(payload);
+  try {
+    if (dshUpgraded) await maybeRefreshBaselinePlugins(web, { becauseDshUpgraded: true });
+  } finally {
+    cacheBaselineWebFromPayload(payload);
+  }
+}
+
+/** 只提示，不改用户插件。压缩包仅作为「本包基础版本」对照。 */
+function hintStalePlugins(payload) {
+  const skew = analyzeBaselineSkew(payloadWebDir(payload));
+  console.log("你已安装的插件不会自动被替换。");
+  if (skew.needsRefresh) {
+    printBaselineSkew(skew);
+    console.log("若接下来升级了 dsh 内核，会再问你要不要刷新这些基础插件。");
+  } else if (skew.extras.length) {
+    const show = skew.extras.slice(0, 8).join("、");
+    console.log(`你自行安装的插件未改动：${show}${skew.extras.length > 8 ? " 等" : ""}`);
+  }
+}
+
+export function looksLikePluginBootFailure(log) {
+  const s = String(log || "");
+  return /plugin tree failed|failed to import loader entry|failed to apply loader|does not provide an export named|ERR_MODULE_NOT_FOUND|Cannot find package/i.test(
+    s,
+  );
+}
+
+async function obtainBaselineSourceFromZip() {
+  let zipPath = null;
+  const sidecar = findSidecarZips();
+  if (sidecar.length === 1) {
+    console.log(`在本目录发现：${path.basename(sidecar[0])}`);
+    if (await askYesNo("是否用这个压缩包里的基础插件修复？[Y/n] ")) zipPath = sidecar[0];
+  } else if (sidecar.length > 1) {
+    console.log("本目录有多个压缩包，请指定其中一个完整路径：");
+    for (const p of sidecar) console.log(`  ${p}`);
+  }
+  if (!zipPath) {
+    const typed = await askText("请输入本机 DeepSeekHarness-v*.zip 的完整路径（回车跳过）：\n> ");
+    if (typed) zipPath = typed;
+  }
+  if (!zipPath) return null;
+  const work = path.join(ROOT, ".update");
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { recursive: true });
+  try {
+    const meta = inspectAndExtractPortableZip(zipPath, path.join(work, "extract"));
+    cacheBaselineWebFromPayload(meta.payload);
+    return hasBaselineWebCache() ? baselineWebDir() : null;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** 启动失败后：询问并用出厂基础插件修复，成功返回 true。 */
+export async function recoverPluginsAfterBootFailure(log) {
+  const cacheOk = hasBaselineWebCache();
+  const skew = cacheOk ? analyzeBaselineSkew(baselineWebDir()) : { needsRefresh: false };
+
+  if (!looksLikePluginBootFailure(log) && !skew.needsRefresh) return false;
+
+  console.log("");
+  console.log("[错误] 启动失败，很像是插件和当前 dsh 内核不匹配。");
+  console.log("刚升级内核、但还没换本包基础插件（Web UI 等）时会出现这种情况。");
+  console.log("可以只刷新基础插件。你自己装的插件、对话和设置不会删。");
+  if (cacheOk && skew.needsRefresh) printBaselineSkew(skew);
+
+  if (!(await askYesNo("是否现在刷新基础插件并重新启动？[Y/n] "))) {
+    console.log("已取消。也可把 DeepSeekHarness-v*.zip 拖到 update.cmd 上，在询问时同意刷新基础插件。");
+    return false;
+  }
+
+  let source = cacheOk ? baselineWebDir() : null;
+  if (!source) {
+    try {
+      source = await obtainBaselineSourceFromZip();
+    } catch (err) {
+      console.log(`无法使用该压缩包：${err.message}`);
+      return false;
+    }
+  }
+  if (!source) {
+    console.log("没有可用的基础插件备份。请把标准版 DeepSeekHarness-v*.zip 放到本目录后重试。");
+    return false;
+  }
+  refreshBaselinePlugins(source);
+  console.log("基础插件已刷新。");
+  return true;
 }
 
 function overlayDshKernel(payload) {
@@ -806,7 +1063,16 @@ function overlayPayload(payload) {
   const skipped = [];
   // home：用户数据与插件，永不覆盖。
   // node_modules：dsh 内核，须用户同意后再 overlayDshKernel。
-  const skipTop = new Set(["home", "config.json", ".update", ".npm-cache", "node_modules", "package-lock.json"]);
+  // .baseline-web：出厂基础插件备份，由 afterPayloadApplied 维护，禁止被 zip 顶掉。
+  const skipTop = new Set([
+    "home",
+    "config.json",
+    ".update",
+    ".npm-cache",
+    ".baseline-web",
+    "node_modules",
+    "package-lock.json",
+  ]);
   for (const entry of fs.readdirSync(payload, { withFileTypes: true })) {
     if (skipTop.has(entry.name)) continue;
     const s = path.join(payload, entry.name);
@@ -877,6 +1143,7 @@ export async function installPackerRelease(release) {
     overlayPayload(meta.payload);
     hintStalePlugins(meta.payload);
     const dsh = await maybeUpgradeDshFromPayload(meta.payload);
+    await afterPayloadApplied(meta.payload, dsh);
     console.log(`便携包已更新到 v${meta.version}。`);
     return { packer: meta.version, dsh };
   } finally {
@@ -910,6 +1177,7 @@ async function applyLocalZip(zipPath, cur) {
       console.log(`该压缩包版本 v${meta.version} 与当前相同，跳过程序文件替换。`);
       hintStalePlugins(meta.payload);
       const dsh = await maybeUpgradeDshFromPayload(meta.payload);
+      await afterPayloadApplied(meta.payload, dsh);
       return dsh ? { packer: null, dsh } : null;
     }
     if (cmp < 0) {
@@ -925,6 +1193,7 @@ async function applyLocalZip(zipPath, cur) {
     overlayPayload(meta.payload);
     hintStalePlugins(meta.payload);
     const dsh = await maybeUpgradeDshFromPayload(meta.payload);
+    await afterPayloadApplied(meta.payload, dsh);
     console.log(`便携包已更新到 v${meta.version}。`);
     return { packer: meta.version, dsh };
   } finally {
@@ -1024,7 +1293,7 @@ export async function runUpdates(config, { interactive = false, allowLocalPrompt
   if (!latestDsh || compareVersions(latestDsh, current) <= 0) return result;
 
   console.log(`检测到 dsh 内核新版本 v${latestDsh}（当前 v${current}）。`);
-  console.log("插件不会随内核一起改；只有你同意才会替换 dsh。");
+  console.log("插件不会随内核一起自动改；只有你同意才会替换 dsh。");
   if (!(await askYesNo("是否升级 dsh 内核？同意后才替换。[Y/n] "))) {
     console.log("已跳过 dsh 内核升级。");
     console.log("");
@@ -1038,6 +1307,12 @@ export async function runUpdates(config, { interactive = false, allowLocalPrompt
   } else {
     console.log("");
     console.log(`dsh 内核已更新到 v${result.dsh}。`);
+    if (hasBaselineWebCache()) {
+      await maybeRefreshBaselinePlugins(baselineWebDir(), { becauseDshUpgraded: true });
+    } else {
+      console.log("本次内核来自 npm，本目录还没有基础插件备份。");
+      console.log("若启动失败，请把 DeepSeekHarness-v*.zip 拖到 update.cmd 上。");
+    }
   }
   console.log("");
   return result;
