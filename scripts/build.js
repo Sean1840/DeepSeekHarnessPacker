@@ -245,10 +245,11 @@ const UPDATER_README =
   "这个小包只有更新器，不是完整程序。不要把它拖到 update.cmd 上。\r\n" +
   "\r\n" +
   "用法：\r\n" +
-  "1. 解压到老便携包根目录（能看到 start.cmd 的那一层），覆盖这 3 个文件：\r\n" +
+  "1. 解压到老便携包根目录（能看到 start.cmd 的那一层），覆盖这些文件：\r\n" +
   "     update.cmd\r\n" +
   "     scripts\\update.js\r\n" +
   "     scripts\\common.js\r\n" +
+  "     scripts\\start.js\r\n" +
   "2. 再从同一个 GitHub Release 下载完整的 DeepSeekHarness-v*.zip（大约 200 MB）\r\n" +
   "3. 把那个完整 zip 拖到已经换好的 update.cmd 上\r\n" +
   "\r\n" +
@@ -263,6 +264,7 @@ function makeUpdaterZip(pkgVer) {
   fs.copyFileSync(path.join(TEMPLATE_DIR, "update.cmd"), path.join(stage, "update.cmd"));
   fs.copyFileSync(path.join(REPO, "scripts", "update.js"), path.join(stage, "scripts", "update.js"));
   fs.copyFileSync(path.join(REPO, "scripts", "common.js"), path.join(stage, "scripts", "common.js"));
+  fs.copyFileSync(path.join(REPO, "scripts", "start.js"), path.join(stage, "scripts", "start.js"));
   fs.writeFileSync(path.join(stage, "使用说明.txt"), UPDATER_README, "utf8");
   const zipName = `DeepSeekHarness-updater-v${pkgVer}.zip`;
   const zipPath = path.join(DIST, zipName);

@@ -61,7 +61,7 @@ v1.3 及更早**没有**「读本地 zip / 不覆盖插件 / 询问 dsh」这套
 
 GitHub Release 上有一个很小的 **`DeepSeekHarness-updater-v*.zip`**（只有更新器，几 KB），不用解 200 MB 的完整包。
 
-1. 下载 `DeepSeekHarness-updater-v*.zip`，解压到老便携包根目录（能看到 `start.cmd` 的那一层），覆盖下面 3 个文件
+1. 下载 `DeepSeekHarness-updater-v*.zip`，解压到老便携包根目录（能看到 `start.cmd` 的那一层），覆盖下面这些文件
 2. 再下载完整的 `DeepSeekHarness-v*.zip`，拖到已经换好的 `update.cmd` 上
 
 | 必须同时替换 | 说明 |
@@ -69,6 +69,7 @@ GitHub Release 上有一个很小的 **`DeepSeekHarness-updater-v*.zip`**（只�
 | `update.cmd` | 入口；支持把 zip 拖到脚本上 |
 | `scripts\update.js` | 更新流程 |
 | `scripts\common.js` | 校验、覆盖、询问 dsh、询问基础插件、保存 `.baseline-web` 备份 |
+| `scripts\start.js` | 启动；用 dsh 打印的带 token 地址打开浏览器 |
 
 **不要把 updater 小包拖到 `update.cmd` 上**，那不是完整便携包。
 
