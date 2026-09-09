@@ -1268,13 +1268,17 @@ async function applyLocalZip(zipPath, cur) {
 /**
  * 便携包自更新 + dsh 引擎更新。
  * interactive=true 时询问是否更新；update.cmd 传 false 表示确认更新。
+ * packer=false 时不探测 GitHub、不校验便携包版本（给 start.cmd 用，只允许升 dsh）。
  * 不能访问 GitHub 下载页时，改为使用本地 zip（参数 / 旁路文件 / 手动输入路径）。
  */
-export async function runUpdates(config, { interactive = false, allowLocalPrompt = false, localZip = null } = {}) {
+export async function runUpdates(
+  config,
+  { interactive = false, allowLocalPrompt = false, localZip = null, packer = true } = {},
+) {
   const result = { packer: null, dsh: null };
   const cur = packerVersion() || "0.0.0";
 
-  try {
+  if (packer) try {
     if (localZip) {
       const applied = await applyLocalZip(localZip, cur);
       if (applied) {
@@ -1344,7 +1348,7 @@ export async function runUpdates(config, { interactive = false, allowLocalPrompt
     console.log(`[提示] 便携包更新失败：${err.message}`);
     console.log("       不会改动当前安装。可换一个标准版 DeepSeekHarness-v*.zip 再试。");
   }
-  console.log("");
+  if (packer) console.log("");
 
   const current = installedVersion();
   if (!current) return result;

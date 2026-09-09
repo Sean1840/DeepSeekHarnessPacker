@@ -1,8 +1,8 @@
 // 启动 DeepSeek Harness（Web UI）。
-// 启动前按 config.autoUpdate 处理更新检查：
+// 启动前按 config.autoUpdate 只检查 dsh 内核，不探测便携包 GitHub 版本（那是 update.cmd 的事）：
 //   off  → 直接启动（纯离线）
-//   ask  → 联网且有新版本时询问用户（默认）
-//   auto → 联网且有新版本时自动更新
+//   ask  → 联网且 dsh 有新版本时询问（默认）
+//   auto → 联网且 dsh 有新版本时自动装内核（仍会问）
 // 若 dsh 因基础插件与内核不匹配而立刻退出，询问后刷新基础插件并重试一次。
 // 浏览器必须打开 dsh 打印的带 token 地址，否则页面会 401。
 
@@ -114,8 +114,8 @@ async function main() {
   if (config.autoUpdate !== "off") {
     await runUpdates(config, {
       interactive: config.autoUpdate !== "auto",
-      // 启动时不要每次离线都问 zip 路径；手动更新请用 update.cmd。
       allowLocalPrompt: false,
+      packer: false,
     });
   }
 

@@ -14,7 +14,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `start.cmd` | 启动 Web UI（启动前会检查更新，离线则直接用本地版本） |
+| `start.cmd` | 启动 Web UI（启动前可检查 dsh 内核，不检查便携包版本） |
 | `update.cmd` | 手动更新（在线下载，或使用本机 zip） |
 | `install.cmd` | 安装 / 修复（`node_modules` 损坏时联网重装） |
 

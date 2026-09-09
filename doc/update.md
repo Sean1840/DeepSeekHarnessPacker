@@ -22,11 +22,11 @@
 
 能打开则自动下载最新 `DeepSeekHarness-v*.zip`，校验后替换程序文件，再询问是否升级 dsh 内核。若内核升级了、而本包基础插件还是旧的（包括已更名的旧 UI 包），会再问要不要刷新这些基础插件。你自己装的插件不会删。若仍装着已撤下的 `dsh-file-mount`，会先问：卸载并继续，或取消本次更新。
 
-`start.cmd` 启动前也会检查。`config.json` 里 `autoUpdate`：
+`start.cmd` 启动前**只检查 dsh 内核**，不探测本项目便携包版本。换程序文件请双击 `update.cmd`。`config.json` 里 `autoUpdate`：
 
-- `ask`（默认）：询问
-- `auto`：程序文件可自动换，**dsh 内核和基础插件刷新仍会问**
-- `off`：不检查
+- `ask`（默认）：启动时若 dsh 有新版本会询问；`update.cmd` 仍会问便携包
+- `auto`：启动时可自动装新 dsh（内核仍会问）；`update.cmd` 可自动换程序文件
+- `off`：启动不检查；`update.cmd` 仍可手动更新
 
 ---
 
