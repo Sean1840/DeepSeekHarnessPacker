@@ -30,7 +30,7 @@ const DSH_TAG = process.env.DSH_TAG || "alpha";
 const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js"];
 const TEMPLATE_DIR = path.join(REPO, "template");
 
-// ---- 默认预装插件（详见 PLUGINS.md）----
+// ---- 默认预装插件（详见 doc/plugins.md）----
 // dsh-file-mount：离线 tarball 固定在 vendor/ 下，构建时解压进 profile，无需联网。
 const VENDOR_DIR = path.join(REPO, "vendor");
 // dsh-market / dsh-web-all：构建时经 `dsh plugin --profile web add`（pnpm）从 npm 安装，
@@ -274,7 +274,7 @@ function installDefaultPlugins(stage, nodeExe) {
     path.join(profileDir, "cordis.patch.yml"),
     "# 此 profile 的用户补丁层。内置插件（dsh-file-mount / dsh-market / dsh-web-all）已作为 bundle\n" +
       "# 预装并默认启用；如需调整插件配置（如 file-mount 的 enabled/capacity/excludeGlobs），\n" +
-      "# 在此按 loader 补丁语法覆盖。详见包内 PLUGINS.md。\n" +
+      "# 在此按 loader 补丁语法覆盖。详见包内 doc/plugins.md。\n" +
       "[]\n",
   );
   fs.writeFileSync(
@@ -287,7 +287,7 @@ function installDefaultPlugins(stage, nodeExe) {
   if (fs.existsSync(VENDOR_DIR)) {
     tgz = fs.readdirSync(VENDOR_DIR).find((f) => /^dsh-file-mount-\d+\.\d+\.\d+\.tgz$/.test(f));
   }
-  if (!tgz) throw new Error("vendor/ 下未找到 dsh-file-mount tarball，构建必需（见 PLUGINS.md）");
+  if (!tgz) throw new Error("vendor/ 下未找到 dsh-file-mount tarball，构建必需（见 doc/plugins.md）");
   // 解压（tar 输出 package/ 前缀，strip 掉；bsdtar 3.8+ 不支持 --force-local，GNU tar 需要，先试无参）
   const tmp = path.join(TMP, "plugin-extract");
   fs.mkdirSync(tmp, { recursive: true });
@@ -357,9 +357,14 @@ async function main() {
   }
   for (const f of fs.readdirSync(TEMPLATE_DIR)) {
     if (f === "README.finance.md") continue;
-    fs.copyFileSync(path.join(TEMPLATE_DIR, f), path.join(STAGE, f));
+    const src = path.join(TEMPLATE_DIR, f);
+    if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(STAGE, f));
   }
-  log("管理器与模板已复制");
+  const docDir = path.join(REPO, "doc");
+  if (fs.existsSync(docDir)) {
+    fs.cpSync(docDir, path.join(STAGE, "doc"), { recursive: true });
+  }
+  log("管理器、模板与 doc/ 已复制");
 
   // 3. 预装 dsh（用刚解压的便携 node 的 npm，保证 ABI 一致）
   const dshVersion = await resolveDshVersion();

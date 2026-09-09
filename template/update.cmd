@@ -1,4 +1,6 @@
 @echo off
+rem 给老包打补丁时，请同时覆盖本文件以及 scripts\update.js、scripts\common.js，
+rem 再把新的 DeepSeekHarness-v*.zip 拖到本脚本上。只换其中一个文件无法升级。
 setlocal
 chcp 65001 >nul 2>&1
 set "DSH_DIR=%~dp0"

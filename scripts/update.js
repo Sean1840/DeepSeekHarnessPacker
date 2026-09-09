@@ -1,5 +1,6 @@
-// 手动更新：便携包自身（GitHub release 原地覆盖）+ dsh 引擎（npm）。
-// 不覆盖 home/ 会话与凭证，不覆盖用户改过的 config.json 项。
+// 手动更新：便携包程序文件（GitHub 或本地 zip）+ 询问后升级 dsh 内核。
+// 不覆盖 home/（会话、凭证、已装插件），不覆盖用户改过的 config.json 项。
+// 给老包打补丁时必须同时替换：update.cmd、本文件、scripts/common.js。
 
 import { banner, readConfig, runUpdates } from "./common.js";
 
