@@ -21,6 +21,8 @@ export const DEFAULT_CONFIG = {
   autoUpdate: "ask", // ask | auto | off
   openBrowser: true,
   dshPackage: "@deepseek-ai/dsh",
+  // npm dist-tag。当前上游正式 latest 仍是 0.1.2-rc.1，GitHub/npm 最新线在 alpha（0.1.5-alpha.x）。
+  dshTag: "alpha",
 };
 
 /** 打印横幅。 */
@@ -77,15 +79,27 @@ export function installedVersion() {
   }
 }
 
-/** 拼接 registry 上某包的 `/latest` 端点。 */
-function latestUrl(registry, pkg) {
-  return `${normalizeRegistry(registry)}/${encodePkgSpec(pkg)}/latest`;
+/** 拼接 registry 上某包的 dist-tag 端点（默认走配置的 dshTag）。 */
+function latestUrl(registry, pkg, tag = DEFAULT_CONFIG.dshTag) {
+  const distTag = String(tag || "latest").replace(/^v/, "");
+  return `${normalizeRegistry(registry)}/${encodePkgSpec(pkg)}/${encodeURIComponent(distTag)}`;
+}
+
+/** npm 安装规格，如 `@deepseek-ai/dsh@alpha`。 */
+export function dshInstallSpec(config = {}) {
+  const pkg = config.dshPackage || DEFAULT_CONFIG.dshPackage;
+  const tag = config.dshTag || DEFAULT_CONFIG.dshTag;
+  return `${pkg}@${tag}`;
 }
 
 /** 对 registry 发短超时请求，判定网络是否可达（即"是否支持更新"）。 */
-export async function networkReachable(registry, pkg = DEFAULT_CONFIG.dshPackage) {
+export async function networkReachable(
+  registry,
+  pkg = DEFAULT_CONFIG.dshPackage,
+  tag = DEFAULT_CONFIG.dshTag,
+) {
   try {
-    const res = await fetch(latestUrl(registry, pkg), {
+    const res = await fetch(latestUrl(registry, pkg, tag), {
       method: "GET",
       signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
@@ -96,10 +110,14 @@ export async function networkReachable(registry, pkg = DEFAULT_CONFIG.dshPackage
   }
 }
 
-/** 查询 npm registry 上某包的最新版本号；失败返回 null。 */
-export async function latestVersion(registry, pkg = DEFAULT_CONFIG.dshPackage) {
+/** 查询 npm registry 上某包在指定 dist-tag 的版本号；失败返回 null。 */
+export async function latestVersion(
+  registry,
+  pkg = DEFAULT_CONFIG.dshPackage,
+  tag = DEFAULT_CONFIG.dshTag,
+) {
   try {
-    const res = await fetch(latestUrl(registry, pkg), {
+    const res = await fetch(latestUrl(registry, pkg, tag), {
       method: "GET",
       signal: AbortSignal.timeout(10000),
       headers: { accept: "application/json" },
@@ -113,18 +131,55 @@ export async function latestVersion(registry, pkg = DEFAULT_CONFIG.dshPackage) {
 }
 
 /**
- * 简单语义化版本比较：返回 -1（a<b）、0（相等）、1（a>b）。
- * 支持形如 0.1.0-rc.6 的预发布版本（数字段相同视为相等）。
+ * SemVer 比较：返回 -1（a<b）、0（相等）、1（a>b）。
+ * 预发布必须小于同号正式版（0.1.1-rc.2 < 0.1.1），标识符按 SemVer 2.0 比较。
  */
 export function compareVersions(a, b) {
-  const pa = String(a).split(/[.+-]/).map((x) => (x ? Number(x) : 0));
-  const pb = String(b).split(/[.+-]/).map((x) => (x ? Number(x) : 0));
-  const len = Math.max(pa.length, pb.length);
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
+  for (const key of ["major", "minor", "patch"]) {
+    if (pa[key] < pb[key]) return -1;
+    if (pa[key] > pb[key]) return 1;
+  }
+  return comparePrerelease(pa.pre, pb.pre);
+}
+
+function parseSemver(v) {
+  const s = String(v).trim().replace(/^v/i, "");
+  const m = s.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (m) {
+    return {
+      major: Number(m[1]),
+      minor: Number(m[2]),
+      patch: Number(m[3]),
+      pre: m[4] ? m[4].split(".") : null,
+    };
+  }
+  // 非标准串：尽量拆出数字段，避免把 "rc" 当成 NaN 参与比较。
+  const nums = s.split(/[.+-]/).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  return { major: nums[0] ?? 0, minor: nums[1] ?? 0, patch: nums[2] ?? 0, pre: null };
+}
+
+function comparePrerelease(a, b) {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1; // 正式版 > 预发布
+  if (b === null) return -1;
+  const len = Math.max(a.length, b.length);
   for (let i = 0; i < len; i++) {
-    const va = pa[i] ?? 0;
-    const vb = pb[i] ?? 0;
-    if (va < vb) return -1;
-    if (va > vb) return 1;
+    if (i >= a.length) return -1;
+    if (i >= b.length) return 1;
+    const da = /^\d+$/.test(a[i]);
+    const db = /^\d+$/.test(b[i]);
+    if (da && db) {
+      const na = Number(a[i]);
+      const nb = Number(b[i]);
+      if (na < nb) return -1;
+      if (na > nb) return 1;
+      continue;
+    }
+    if (da !== db) return da ? -1 : 1; // 数字标识符 < 字母
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
   }
   return 0;
 }

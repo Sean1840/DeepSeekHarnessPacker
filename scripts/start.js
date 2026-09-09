@@ -21,6 +21,7 @@ import {
   runNpm,
   openBrowser,
   findFreePort,
+  dshInstallSpec,
 } from "./common.js";
 
 /** 询问用户是否更新，返回 true/false。 */
@@ -40,13 +41,13 @@ async function maybeUpdate(config) {
   const current = installedVersion();
   if (!current) return;
 
-  if (!(await networkReachable(config.registry, config.dshPackage))) {
+  if (!(await networkReachable(config.registry, config.dshPackage, config.dshTag))) {
     console.log("[提示] 离线模式：无法联网，跳过更新检查，直接启动本地预装版本。");
     console.log("");
     return;
   }
 
-  const latest = await latestVersion(config.registry, config.dshPackage);
+  const latest = await latestVersion(config.registry, config.dshPackage, config.dshTag);
   if (!latest || compareVersions(latest, current) <= 0) {
     return; // 已是最新，静默启动
   }
@@ -56,7 +57,7 @@ async function maybeUpdate(config) {
   if (config.autoUpdate === "auto") {
     console.log("按配置自动更新…");
     console.log("");
-    await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+    await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
     return;
   }
 
@@ -64,7 +65,7 @@ async function maybeUpdate(config) {
   const yes = await askYesNo("是否立即更新到最新版？[Y/n] ");
   if (yes) {
     console.log("");
-    await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+    await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
   } else {
     console.log("已跳过更新，使用本地版本启动。");
     console.log("");
@@ -84,7 +85,8 @@ function launch(config, port) {
   console.log("首次使用请在网页「设置 → 模型」中填入 DeepSeek API Key。");
   console.log("");
 
-  const child = spawn(node, [dshBin, "web", "--port", String(port)], {
+  // dsh web 默认也会打开浏览器；这里由便携包按选中的端口统一打开，避免弹两个窗口。
+  const child = spawn(node, [dshBin, "web", "--port", String(port), "--no-open"], {
     cwd: ROOT,
     stdio: "inherit",
     env: { ...process.env, DSH_HOME: dshHome },

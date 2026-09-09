@@ -8,6 +8,7 @@ import {
   latestVersion,
   compareVersions,
   runNpm,
+  dshInstallSpec,
 } from "./common.js";
 
 async function main() {
@@ -25,14 +26,14 @@ async function main() {
   console.log("正在检测网络与最新版本…");
   console.log("");
 
-  if (!(await networkReachable(config.registry, config.dshPackage))) {
+  if (!(await networkReachable(config.registry, config.dshPackage, config.dshTag))) {
     console.error("[提示] 当前处于离线状态，无法联网更新。");
     console.error("       请检查网络后重试，或修改 config.json 的 registry。");
     process.exitCode = 1;
     return;
   }
 
-  const latest = await latestVersion(config.registry, config.dshPackage);
+  const latest = await latestVersion(config.registry, config.dshPackage, config.dshTag);
   if (!latest) {
     console.error("[错误] 无法获取最新版本信息（registry 响应异常）。");
     process.exitCode = 1;
@@ -48,7 +49,7 @@ async function main() {
   console.log(`发现新版本 v${latest}（当前 v${current}），开始更新…`);
   console.log("");
 
-  const code = await runNpm(["install", `${config.dshPackage}@latest`], { registry: config.registry });
+  const code = await runNpm(["install", dshInstallSpec(config)], { registry: config.registry });
   const after = installedVersion();
 
   if (code === 0 && after) {
