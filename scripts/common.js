@@ -384,16 +384,36 @@ export function packerVersion() {
   }
 }
 
-/** 控制台是/否，默认回车为是。 */
-export function askYesNo(question) {
+/** 控制台是/否。defaultYes=true 时回车为是。 */
+export function askYesNo(question, defaultYes = true) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
       rl.close();
       const a = answer.trim().toLowerCase();
-      resolve(a === "" || a === "y" || a === "yes" || a === "是");
+      if (a === "") return resolve(defaultYes);
+      resolve(a === "y" || a === "yes" || a === "是");
     });
   });
+}
+
+/** 控制台读一行（可空）。 */
+export function askText(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+function normalizeUserPath(p) {
+  let s = String(p || "").trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+  return path.resolve(s);
 }
 
 const GITHUB_HEADERS = {
@@ -468,17 +488,17 @@ function psQuote(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
-/** 解压 zip 到 destDir（PowerShell Expand-Archive，失败再试 tar）。 */
+/** 解压 zip 到 destDir（优先 tar，失败再试 PowerShell Expand-Archive）。 */
 export function extractZip(zipPath, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
+  const tar = spawnSync("tar", ["-xf", zipPath, "-C", destDir], { stdio: "ignore", windowsHide: true });
+  if (tar.status === 0) return;
   const ps = spawnSync(
     "powershell",
     ["-NoProfile", "-Command", `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(destDir)} -Force`],
     { stdio: "inherit", windowsHide: true },
   );
-  if (ps.status === 0) return;
-  const tar = spawnSync("tar", ["-xf", zipPath, "-C", destDir], { stdio: "inherit" });
-  if (tar.status !== 0) throw new Error("解压失败（PowerShell / tar 均不可用）");
+  if (ps.status !== 0) throw new Error("解压失败（tar / PowerShell 均不可用）");
 }
 
 function findPayloadRoot(extractDir) {
@@ -573,61 +593,290 @@ function overlayWebProfile(srcProfile, dstProfile) {
   }
 }
 
+/** 探测 GitHub 下载页是否可达（比 ICMP ping 更接近真实下载；很多网络禁 ping 但仍能打开网页）。 */
+export async function isReleasePageReachable(config = {}) {
+  const repo = config.updateRepo || DEFAULT_CONFIG.updateRepo;
+  const page = `https://github.com/${repo}/releases/latest`;
+  try {
+    const res = await fetch(page, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "user-agent": "DeepSeekHarness-portable", accept: "text/html" },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function listZipEntries(zipPath) {
+  const tar = spawnSync("tar", ["-tf", zipPath], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, windowsHide: true });
+  if (tar.status === 0 && tar.stdout) {
+    return tar.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  }
+  const ps = spawnSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      `Add-Type -AssemblyName System.IO.Compression.FileSystem; $z = [System.IO.Compression.ZipFile]::OpenRead(${psQuote(zipPath)}); try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }`,
+    ],
+    { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, windowsHide: true },
+  );
+  if (ps.status === 0 && ps.stdout) {
+    return ps.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  }
+  throw new Error("无法读取压缩包目录（文件可能损坏或不是 zip）");
+}
+
+function assertSafeZipEntries(entries) {
+  for (const e of entries) {
+    const n = e.replace(/\\/g, "/");
+    if (!n) continue;
+    if (n.split("/").filter(Boolean).includes("..")) throw new Error(`压缩包含非法路径（..）：${e}`);
+    if (/^[a-zA-Z]:/.test(n) || n.startsWith("/") || n.startsWith("\\\\")) {
+      throw new Error(`压缩包含绝对路径：${e}`);
+    }
+  }
+}
+
+function isInsideDir(parent, child) {
+  const p = path.resolve(parent);
+  const c = path.resolve(child);
+  return c === p || c.startsWith(p + path.sep);
+}
+
+function assertExtractInside(root) {
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
+      const full = path.join(cur, entry.name);
+      if (!isInsideDir(root, full)) throw new Error(`解压结果越出目录：${full}`);
+      if (entry.isDirectory()) stack.push(full);
+    }
+  }
+}
+
+const REQUIRED_PAYLOAD_FILES = [
+  "package.json",
+  "config.json",
+  "start.cmd",
+  "update.cmd",
+  "install.cmd",
+  "scripts/start.js",
+  "scripts/update.js",
+  "scripts/common.js",
+  "scripts/install.js",
+  "node/node.exe",
+  "node_modules/@deepseek-ai/dsh/package.json",
+];
+
+function assertOurPortablePayload(payload) {
+  if (fs.existsSync(path.join(payload, "hithink-finance.cmd"))) {
+    throw new Error("这是已下线的金融特化版压缩包，请使用标准版 DeepSeekHarness-v*.zip");
+  }
+  for (const rel of REQUIRED_PAYLOAD_FILES) {
+    if (!fs.existsSync(path.join(payload, ...rel.split("/")))) {
+      throw new Error(`不是本项目便携包（缺少 ${rel}）`);
+    }
+  }
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(payload, "package.json"), "utf8"));
+  } catch {
+    throw new Error("压缩包内 package.json 无法解析");
+  }
+  if (pkg.name !== "deepseek-harness-portable") {
+    throw new Error(`不是本项目便携包（name=${pkg.name || "?"}，期望 deepseek-harness-portable）`);
+  }
+  if (!pkg.version || !/^\d+\.\d+\.\d+/.test(String(pkg.version))) {
+    throw new Error("压缩包版本号无效");
+  }
+  let dshPkg;
+  try {
+    dshPkg = JSON.parse(
+      fs.readFileSync(path.join(payload, "node_modules", "@deepseek-ai", "dsh", "package.json"), "utf8"),
+    );
+  } catch {
+    throw new Error("压缩包内未找到 @deepseek-ai/dsh");
+  }
+  if (dshPkg.name !== "@deepseek-ai/dsh") {
+    throw new Error("压缩包内 dsh 包名不匹配");
+  }
+  let cfg = {};
+  try {
+    cfg = JSON.parse(fs.readFileSync(path.join(payload, "config.json"), "utf8"));
+  } catch {
+    throw new Error("压缩包内 config.json 无法解析");
+  }
+  if (cfg.dshPackage && cfg.dshPackage !== "@deepseek-ai/dsh") {
+    throw new Error("压缩包 config.json 的 dshPackage 不是 @deepseek-ai/dsh");
+  }
+  const common = fs.readFileSync(path.join(payload, "scripts", "common.js"), "utf8");
+  if (!common.includes("DeepSeek Harness 便携版")) {
+    throw new Error("压缩包脚本不是本项目便携版管理器");
+  }
+  const startCmd = fs.readFileSync(path.join(payload, "start.cmd"), "utf8");
+  if (!/scripts\\start\.js/i.test(startCmd)) {
+    throw new Error("start.cmd 入口不匹配");
+  }
+  const nodeExe = path.join(payload, "node", "node.exe");
+  if (fs.statSync(nodeExe).size < 1024 * 1024) {
+    throw new Error("压缩包内 node.exe 异常（文件过小）");
+  }
+  return { version: String(pkg.version), name: pkg.name };
+}
+
+/** 列出便携目录内现成的标准版 zip（方便离线用户把包放在 start.cmd 旁边）。 */
+function findSidecarZips() {
+  const out = [];
+  try {
+    for (const f of fs.readdirSync(ROOT)) {
+      if (/^DeepSeekHarness-v\d+\.\d+\.\d+.*\.zip$/i.test(f) && !/finance/i.test(f)) {
+        out.push(path.join(ROOT, f));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
 /**
- * 把 GitHub release zip 原地覆盖到当前便携目录。
- * 保留 home（会话/Key）与用户 config.json；内置插件目录会升级并保留用户补丁和额外插件。
+ * 校验并解压便携包 zip。失败抛错，不碰当前安装目录。
+ * 检查：扩展名、金融版排除、zip-slip、必要文件、package.json 身份、dsh 包名、管理器脚本标记。
+ */
+export function inspectAndExtractPortableZip(zipPath, extractDir) {
+  const resolved = normalizeUserPath(zipPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    throw new Error(`找不到文件：${resolved}`);
+  }
+  if (!resolved.toLowerCase().endsWith(".zip")) {
+    throw new Error("只接受 .zip 压缩包");
+  }
+  if (/finance/i.test(path.basename(resolved))) {
+    throw new Error("这是金融特化版文件名，请使用标准版 DeepSeekHarness-v*.zip");
+  }
+  const entries = listZipEntries(resolved);
+  if (!entries.length) throw new Error("压缩包是空的");
+  assertSafeZipEntries(entries);
+  fs.mkdirSync(extractDir, { recursive: true });
+  extractZip(resolved, extractDir);
+  assertExtractInside(extractDir);
+  const payload = findPayloadRoot(extractDir);
+  if (!isInsideDir(extractDir, payload)) throw new Error("解压根目录异常");
+  const meta = assertOurPortablePayload(payload);
+  return { zipPath: resolved, payload, version: meta.version };
+}
+
+function overlayPayload(payload) {
+  const skipped = [];
+  const skipTop = new Set(["home", "config.json", ".update", ".npm-cache"]);
+  for (const entry of fs.readdirSync(payload, { withFileTypes: true })) {
+    if (skipTop.has(entry.name)) continue;
+    const s = path.join(payload, entry.name);
+    const d = path.join(ROOT, entry.name);
+    if (entry.name === "node") {
+      copyTreeSkipLocked(s, d, skipped, "node");
+      continue;
+    }
+    if (entry.isDirectory()) {
+      fs.cpSync(s, d, { recursive: true, force: true });
+    } else {
+      try {
+        fs.copyFileSync(s, d);
+      } catch (err) {
+        if (LOCKED.has(err.code)) skipped.push(entry.name);
+        else throw err;
+      }
+    }
+  }
+  const incomingCfg = path.join(payload, "config.json");
+  if (fs.existsSync(incomingCfg)) mergeConfigJson(incomingCfg);
+  const homeName = readConfig().homeDir || "home";
+  overlayWebProfile(
+    path.join(payload, "home", "profiles", "web"),
+    path.join(ROOT, homeName, "profiles", "web"),
+  );
+  if (skipped.length) {
+    console.log("[提示] 以下文件正在使用，未能替换（不影响本次运行，下次更新会再试）：");
+    for (const f of skipped.slice(0, 8)) console.log(`       ${f}`);
+    if (skipped.length > 8) console.log(`       …另有 ${skipped.length - 8} 个`);
+  }
+  return skipped;
+}
+
+/**
+ * 把 release zip 原地覆盖到当前便携目录。
+ * release.zipPath 有值则跳过下载，只用本地包（仍走同一套校验）。
  */
 export async function installPackerRelease(release) {
   const work = path.join(ROOT, ".update");
   fs.rmSync(work, { recursive: true, force: true });
   fs.mkdirSync(work, { recursive: true });
-  const zipPath = path.join(work, release.name || "portable.zip");
   const extractDir = path.join(work, "extract");
-  const skipped = [];
   try {
-    console.log(`正在下载 ${release.name}…`);
-    await downloadFile(release.url, zipPath);
-    console.log("正在解压…");
-    extractZip(zipPath, extractDir);
-    const payload = findPayloadRoot(extractDir);
+    let zipPath = release.zipPath;
+    if (!zipPath) {
+      zipPath = path.join(work, release.name || "portable.zip");
+      console.log(`正在下载 ${release.name}…`);
+      await downloadFile(release.url, zipPath);
+    } else {
+      zipPath = normalizeUserPath(zipPath);
+      console.log(`使用本地压缩包：${zipPath}`);
+    }
+    console.log("正在校验压缩包…");
+    const meta = inspectAndExtractPortableZip(zipPath, extractDir);
     console.log("正在替换程序文件（会话和 Key 会保留）…");
+    overlayPayload(meta.payload);
+    console.log(`便携包已更新到 v${meta.version}。`);
+    return meta.version;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
 
-    const skipTop = new Set(["home", "config.json", ".update", ".npm-cache"]);
-    for (const entry of fs.readdirSync(payload, { withFileTypes: true })) {
-      if (skipTop.has(entry.name)) continue;
-      const s = path.join(payload, entry.name);
-      const d = path.join(ROOT, entry.name);
-      if (entry.name === "node") {
-        copyTreeSkipLocked(s, d, skipped, "node");
-        continue;
-      }
-      if (entry.isDirectory()) {
-        fs.cpSync(s, d, { recursive: true, force: true });
-      } else {
-        try {
-          fs.copyFileSync(s, d);
-        } catch (err) {
-          if (LOCKED.has(err.code)) skipped.push(entry.name);
-          else throw err;
-        }
-      }
+async function promptLocalZipPath() {
+  const sidecar = findSidecarZips();
+  if (sidecar.length === 1) {
+    console.log(`在本目录发现：${path.basename(sidecar[0])}`);
+    if (await askYesNo("是否用这个本地压缩包更新？[Y/n] ")) return sidecar[0];
+  } else if (sidecar.length > 1) {
+    console.log("本目录有多个压缩包，请指定其中一个完整路径：");
+    for (const p of sidecar) console.log(`  ${p}`);
+  }
+  const typed = await askText("请输入本机 DeepSeekHarness-v*.zip 的完整路径（回车跳过）：\n> ");
+  return typed || null;
+}
+
+async function applyLocalZip(zipPath, cur) {
+  const work = path.join(ROOT, ".update");
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { recursive: true });
+  const extractDir = path.join(work, "extract");
+  try {
+    console.log("正在校验压缩包…");
+    const meta = inspectAndExtractPortableZip(zipPath, extractDir);
+    const cmp = compareVersions(meta.version, cur);
+    if (cmp === 0) {
+      console.log(`该压缩包版本 v${meta.version} 与当前相同，无需替换。`);
+      return null;
     }
-
-    const incomingCfg = path.join(payload, "config.json");
-    if (fs.existsSync(incomingCfg)) mergeConfigJson(incomingCfg);
-
-    const homeName = readConfig().homeDir || "home";
-    overlayWebProfile(
-      path.join(payload, "home", "profiles", "web"),
-      path.join(ROOT, homeName, "profiles", "web"),
-    );
-
-    if (skipped.length) {
-      console.log(`[提示] 以下文件正在使用，未能替换（不影响本次运行，下次更新会再试）：`);
-      for (const f of skipped.slice(0, 8)) console.log(`       ${f}`);
-      if (skipped.length > 8) console.log(`       …另有 ${skipped.length - 8} 个`);
+    if (cmp < 0) {
+      console.log(`该压缩包是 v${meta.version}，比当前 v${cur} 更旧。`);
+      if (!(await askYesNo("仍要用它覆盖当前版本？[y/N] ", false))) {
+        console.log("已取消。");
+        return null;
+      }
+    } else {
+      console.log(`校验通过：标准便携包 v${meta.version}（当前 v${cur}）。`);
     }
-    console.log(`便携包已更新到 v${release.version}。`);
+    console.log("正在替换程序文件（会话和 Key 会保留）…");
+    overlayPayload(meta.payload);
+    console.log(`便携包已更新到 v${meta.version}。`);
+    return meta.version;
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
@@ -635,35 +884,68 @@ export async function installPackerRelease(release) {
 
 /**
  * 便携包自更新 + dsh 引擎更新。
- * interactive=true 时询问；update.cmd 传 false 直接更新。
+ * interactive=true 时询问是否更新；update.cmd 传 false 表示确认更新。
+ * 不能访问 GitHub 下载页时，改为使用本地 zip（参数 / 旁路文件 / 手动输入路径）。
  */
-export async function runUpdates(config, { interactive = false } = {}) {
+export async function runUpdates(config, { interactive = false, allowLocalPrompt = false, localZip = null } = {}) {
   const result = { packer: null, dsh: null };
+  const cur = packerVersion() || "0.0.0";
 
   try {
-    const cur = packerVersion() || "0.0.0";
-    const latest = await latestPackerRelease(config);
-    if (latest && compareVersions(latest.version, cur) > 0) {
-      console.log(`检测到便携包新版本 v${latest.version}（当前 v${cur}）。`);
-      console.log("会自动替换程序文件；对话记录和 API Key 仍在 home 目录，不用手动拷文件。");
-      if (latest.size) {
-        console.log(`需联网下载约 ${(latest.size / 1048576).toFixed(0)} MB，请保持窗口打开。`);
-      }
-      const go = interactive ? await askYesNo("是否立即更新便携包？[Y/n] ") : true;
-      if (go) {
-        await installPackerRelease(latest);
-        result.packer = latest.version;
-        config = readConfig();
+    if (localZip) {
+      result.packer = await applyLocalZip(localZip, cur);
+      if (result.packer) config = readConfig();
+    } else {
+      console.log("正在检测能否访问 GitHub 下载页…");
+      const online = await isReleasePageReachable(config);
+      if (online) {
+        const latest = await latestPackerRelease(config);
+        if (latest && compareVersions(latest.version, cur) > 0) {
+          console.log(`检测到便携包新版本 v${latest.version}（当前 v${cur}）。`);
+          console.log("会自动替换程序文件；对话记录和 API Key 仍在 home 目录，不用手动拷文件。");
+          if (latest.size) {
+            console.log(`需联网下载约 ${(latest.size / 1048576).toFixed(0)} MB，请保持窗口打开。`);
+          }
+          const go = interactive ? await askYesNo("是否立即更新便携包？[Y/n] ") : true;
+          if (go) {
+            try {
+              result.packer = await installPackerRelease(latest);
+              config = readConfig();
+            } catch (err) {
+              console.log(`在线下载失败：${err.message}`);
+              if (allowLocalPrompt) {
+                const p = await promptLocalZipPath();
+                if (p) {
+                  result.packer = await applyLocalZip(p, cur);
+                  if (result.packer) config = readConfig();
+                }
+              }
+            }
+          } else {
+            console.log("已跳过便携包更新。");
+          }
+        }
       } else {
-        console.log("已跳过便携包更新。");
+        console.log("无法访问 GitHub 下载页，当前不能在线下载。");
+        if (allowLocalPrompt) {
+          const p = await promptLocalZipPath();
+          if (p) {
+            result.packer = await applyLocalZip(p, cur);
+            if (result.packer) config = readConfig();
+          } else {
+            console.log("未提供本地压缩包，跳过便携包更新。");
+            console.log("也可把 zip 放到本目录后重试，或执行：update.cmd 路径\\DeepSeekHarness-v*.zip");
+          }
+        } else {
+          console.log("启动时自动更新已跳过。请双击 update.cmd，或把 zip 拖到 update.cmd 上。");
+        }
       }
-      console.log("");
     }
   } catch (err) {
-    console.log(`[提示] 便携包更新检查失败：${err.message}`);
-    console.log("       将继续检查 dsh 引擎（或稍后再双击 update.cmd）。");
-    console.log("");
+    console.log(`[提示] 便携包更新失败：${err.message}`);
+    console.log("       不会改动当前安装。可换一个标准版 DeepSeekHarness-v*.zip 再试。");
   }
+  console.log("");
 
   const current = installedVersion();
   if (!current) return result;

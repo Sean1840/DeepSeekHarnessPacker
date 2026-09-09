@@ -6,9 +6,11 @@ import { banner, readConfig, runUpdates } from "./common.js";
 async function main() {
   banner();
   const config = readConfig();
+  const localZip = process.argv.slice(2).join(" ").trim() || null;
   console.log("开始更新。程序文件会自动替换；对话记录和 API Key 留在 home 目录。");
+  if (localZip) console.log(`指定本地压缩包：${localZip}`);
   console.log("");
-  const result = await runUpdates(config, { interactive: false });
+  const result = await runUpdates(config, { interactive: false, allowLocalPrompt: true, localZip });
   if (result.packer) console.log(`便携包：v${result.packer}`);
   if (result.dsh) console.log(`dsh：v${result.dsh}`);
   if (!result.packer && !result.dsh) {

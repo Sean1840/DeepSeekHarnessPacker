@@ -61,7 +61,10 @@ async function main() {
   }
 
   if (config.autoUpdate !== "off") {
-    await runUpdates(config, { interactive: config.autoUpdate !== "auto" });
+    await runUpdates(config, {
+      interactive: config.autoUpdate !== "auto",
+      allowLocalPrompt: config.autoUpdate !== "auto",
+    });
   }
 
   const port = await findFreePort(config.port, config.portRange);

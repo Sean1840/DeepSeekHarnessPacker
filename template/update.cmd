@@ -11,7 +11,11 @@ if not exist "%DSH_DIR%scripts\update.js" (
 )
 
 if exist "%DSH_DIR%node\node.exe" (
-  "%DSH_DIR%node\node.exe" "%DSH_DIR%scripts\update.js" %*
+  if "%~1"=="" (
+    "%DSH_DIR%node\node.exe" "%DSH_DIR%scripts\update.js"
+  ) else (
+    "%DSH_DIR%node\node.exe" "%DSH_DIR%scripts\update.js" "%~1"
+  )
 ) else (
   where node >nul 2>&1
   if errorlevel 1 (
@@ -19,7 +23,11 @@ if exist "%DSH_DIR%node\node.exe" (
     pause
     exit /b 1
   )
-  node "%DSH_DIR%scripts\update.js" %*
+  if "%~1"=="" (
+    node "%DSH_DIR%scripts\update.js"
+  ) else (
+    node "%DSH_DIR%scripts\update.js" "%~1"
+  )
 )
 
 echo.
