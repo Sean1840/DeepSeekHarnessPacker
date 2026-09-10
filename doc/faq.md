@@ -19,7 +19,7 @@
 这是内核已经升上去、Web UI 基础插件还是旧包。再运行 `start.cmd`，按提示刷新基础插件即可。也可以把 `DeepSeekHarness-v*.zip` 拖到 `update.cmd` 上，升级内核后同意刷新基础插件。自己装的插件、对话和设置都会保留。
 
 **Q：启动后提示「历史加载失败」且含 `unexpected member "path"` / `dsh-session-format-v0-to-v1`？**  
-这是 `dsh-file-mount` 往会话里写了新内核不认的字段。该插件已从默认包撤下。更新时会问你：卸载它并继续，或取消本次更新。也可在网页「设置 → 插件」里卸载，或从 `home\profiles\web\package.json` 去掉后重启。对话文件仍在 `home/sessions`。
+插件卸了也不够：旧会话文件里已经写下了非法字段。先关掉 `start.cmd`，双击根目录 **`repair-file-mount-sessions.cmd`**。只剥字段、不删对话；备份为 `session.jsonl.zstd.bak-before-source-path-strip`。修完再启动。
 
 **Q：`.baseline-web` 是什么？**  
 上次用 zip 更新时留下的出厂基础插件备份，给启动失败修复用。不是会话数据，可删；下次 zip 更新会再生成。

@@ -17,6 +17,7 @@
 | `start.cmd` | 启动 Web UI（可按配置检查 dsh 内核，不升级便携包） |
 | `update.cmd` | **整体升级**本项目便携包（在线下载或本地 zip） |
 | `install.cmd` | 安装 / 修复（`node_modules` 损坏时联网重装） |
+| `repair-file-mount-sessions.cmd` | 修复旧会话里 file-mount 非法字段（历史加载失败时用） |
 
 ## 卸载
 

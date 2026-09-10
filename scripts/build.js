@@ -27,7 +27,7 @@ const DSH_PACKAGE = "@deepseek-ai/dsh";
 // 与便携包 config.json 的 dshTag 对齐。npm `latest` 仍是 0.1.2-rc.1，GitHub 当前线在 alpha（0.1.5-alpha.x）。
 const DSH_TAG = process.env.DSH_TAG || "alpha";
 
-const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js"];
+const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js", "repair-file-mount-sessions.js"];
 const TEMPLATE_DIR = path.join(REPO, "template");
 
 // ---- 默认预装插件（详见 doc/plugins.md）----
