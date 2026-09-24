@@ -25,7 +25,7 @@
 | `autoUpdate` | `ask` 询问（默认）/ `auto` 自动装 dsh（内核仍会问）/ `off` 启动不检查。**只影响 `start.cmd` 的 dsh 检查**；本项目整体升级用 `update.cmd` |
 | `openBrowser` | 启动后是否自动打开浏览器 |
 | `dshPackage` | dsh 的 npm 包名，默认 `@deepseek-ai/dsh` |
-| `dshTag` | npm dist-tag，默认 `alpha`（当前上游最新为 0.1.5-alpha 线；`latest` 仍指向更早的 rc） |
+| `dshTag` | npm dist-tag，默认 `alpha`（当前上游为 0.1.7-alpha.2；`latest` 仍指向更早的 0.1.5-rc.3） |
 | `updateRepo` | 便携包自更新所用的 GitHub 仓库，默认 `Sean1840/DeepSeekHarnessPacker` |
 
 更新时：**不会覆盖你已经改过的项**，只补你文件里还没有的新字段。

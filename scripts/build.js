@@ -24,7 +24,7 @@ const NODE_DIST_BASES = [
 // 0.1.5-alpha 依赖树在 npmmirror 上不完整（缺 dsh-base 等同版本），构建默认走官方源。
 const NPM_REGISTRY = process.env.NPM_REGISTRY || "https://registry.npmjs.org";
 const DSH_PACKAGE = "@deepseek-ai/dsh";
-// 与便携包 config.json 的 dshTag 对齐。npm `latest` 仍是 0.1.2-rc.1，GitHub 当前线在 alpha（0.1.5-alpha.x）。
+// 与便携包 config.json 的 dshTag 对齐。npm `latest` 仍是 0.1.5-rc.3，当前线在 alpha（0.1.7-alpha.x）。
 const DSH_TAG = process.env.DSH_TAG || "alpha";
 
 const MANAGER_FILES = ["common.js", "install.js", "update.js", "start.js", "repair-file-mount-sessions.js"];

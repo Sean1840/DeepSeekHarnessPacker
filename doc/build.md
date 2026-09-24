@@ -15,14 +15,14 @@ node scripts/build.js --updater-only   # 只打三文件补丁小包，不重打
 
 流程：下载便携 Node.js（x64，Node 24 LTS）→ 复制管理器、模板和 `doc/` → 用便携 Node 预装 dsh → 自检 → 预装默认插件（**构建机需 pnpm 在 PATH**，见 [插件](plugins.md)）→ 打包 zip。
 
-预装的 dsh 走 npm **`alpha` dist-tag**（当前为 `0.1.5-alpha.x`）。npm 的 `latest` 仍指向更早的 `0.1.2-rc.1`，便携包不跟 `latest`。可用环境变量覆盖。
+预装的 dsh 走 npm **`alpha` dist-tag**（当前为 `0.1.7-alpha.2`）。npm 的 `latest` 仍指向更早的 `0.1.5-rc.3`，便携包不跟 `latest`。可用环境变量覆盖。
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `NODE_DIST_BASE` | （空） | 覆盖 Node 下载源；默认按 `npmmirror → nodejs.org` 顺序尝试 |
-| `NPM_REGISTRY` | `https://registry.npmjs.org` | 预装 dsh 的 npm 源；国内可改 `https://registry.npmmirror.com`（0.1.5-alpha 依赖树目前可能不完整） |
+| `NPM_REGISTRY` | `https://registry.npmjs.org` | 预装 dsh 的 npm 源；国内可改 `https://registry.npmmirror.com`（alpha 依赖树在镜像上可能不完整） |
 | `DSH_TAG` | `alpha` | 预装 dsh 使用的 npm dist-tag |
 | `DSH_VERSION` | （空） | 若设置则钉死具体版本，忽略 `DSH_TAG` |
 

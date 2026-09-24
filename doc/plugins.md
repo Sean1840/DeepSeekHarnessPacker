@@ -4,7 +4,7 @@
 
 `@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` → `@dsh-market/plugin` → `@linxin666/dsh-web-all`
 
-`dsh-file-mount` **不再预装**：它写入会话的 `source.path` 等字段会被 dsh 0.1.5-alpha 拒绝，打开旧对话时报「历史加载失败」。需要文件挂载时请等上游修复后再自行安装。
+`dsh-file-mount` **不再预装**：它写入会话的 `source.path` 等字段会被当前 dsh 会话格式拒绝，打开旧对话时报「历史加载失败」。需要文件挂载时请等上游修复后再自行安装。
 
 ## 更新与用户插件
 
